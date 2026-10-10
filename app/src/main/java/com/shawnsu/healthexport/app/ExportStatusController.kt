@@ -9,6 +9,7 @@ import com.shawnsu.healthexport.config.SettingsKeys
 import com.shawnsu.healthexport.export.ExportProtocol
 import com.shawnsu.healthexport.export.ExportReport
 import com.shawnsu.healthexport.export.ExportRequestOutcome
+import com.shawnsu.healthexport.export.ExportRange
 import com.shawnsu.healthexport.export.ExportRequests
 import java.util.UUID
 import java.util.concurrent.Executor
@@ -38,6 +39,8 @@ internal class ExportStatusController(
     private data class Read(val state: ExportUiState, val preferences: SharedPreferences?)
 
     private var binding: Binding? = null
+    /** 界面选定的导出时间范围；null 表示沿用预约中已保存的范围。 */
+    private var selectedRange: String? = null
     @Volatile private var session: Session? = null
     private var worker: ScheduledExecutorService? = null
     private var revision = 0L
@@ -116,6 +119,7 @@ internal class ExportStatusController(
             value
         } catch (_: RuntimeException) { "" }
         return Read(report.copy(request = request, writable = preferences != null,
+            range = selectedRange ?: ExportRequests.range(preferences),
             pending = request.isNotEmpty() && (report.report?.request != request ||
                 report.report.phase !in setOf("complete", "running"))), preferences)
     }
@@ -159,9 +163,9 @@ internal class ExportStatusController(
                 val fresh = read(current)
                 if (session === current && fresh.state.canRequest && fresh.preferences != null) {
                     // 无法撤销已发出的 IPC；提交和回滚始终使用同一份 preferences。
-                    outcome = ExportRequests.save(fresh.preferences, UUID.randomUUID().toString()) {
-                        session === current
-                    }
+                    outcome = ExportRequests.save(
+                        fresh.preferences, UUID.randomUUID().toString(), fresh.state.range,
+                    ) { session === current }
                 } else if (session === current && fresh.preferences == null) {
                     outcome = ExportRequestOutcome.RESTORED
                 }
@@ -170,6 +174,14 @@ internal class ExportStatusController(
                 main.execute { finish(operation, completed) }
             }
         }
+    }
+
+    /** 选择下次导出的时间范围：仅本地界面状态，随预约一并写入，避免影响已生效的预约。 */
+    fun setRange(range: String) = main.execute {
+        if (session == null || !ExportRange.isValid(range) || selectedRange == range) return@execute
+        selectedRange = range
+        state = state.copy(range = range)
+        update(state)
     }
 
     private fun finish(operation: Save, outcome: ExportRequestOutcome?) {

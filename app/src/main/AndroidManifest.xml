@@ -31,6 +31,9 @@
         <activity
             android:name=".app.ExportActivity"
             android:exported="false" />
+        <activity
+            android:name=".app.AnalysisActivity"
+            android:exported="false" />
         <activity-alias
             android:name=".LauncherActivity"
             android:enabled="true"

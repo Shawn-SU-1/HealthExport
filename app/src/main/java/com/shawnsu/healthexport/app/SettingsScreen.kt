@@ -191,6 +191,7 @@ internal fun SettingsScreen(
     scopeState: ScopeUiState = ScopeUiState(),
     onScopeChange: (Boolean) -> Unit = {},
     onOpenExport: () -> Unit = {},
+    onOpenAnalysis: () -> Unit = {},
     onRefreshStatus: () -> Unit = {},
 ) {
     val scrollBehavior = MiuixScrollBehavior()
@@ -258,6 +259,16 @@ internal fun SettingsScreen(
                     title = stringResource(R.string.export_title),
                     testTag = "settings:export-nav",
                     onClick = onOpenExport,
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .padding(bottom = 8.dp),
+                )
+            }
+            item(key = "analysis_navigation") {
+                NavigationCard(
+                    title = stringResource(R.string.analysis_title),
+                    testTag = "settings:analysis-nav",
+                    onClick = onOpenAnalysis,
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
                         .padding(bottom = 8.dp),

@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.shawnsu.healthexport.R
 import com.shawnsu.healthexport.export.ExportProtocol
+import com.shawnsu.healthexport.export.ExportRange
 import com.shawnsu.healthexport.export.ExportReport
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
@@ -24,6 +25,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal data class ExportUiState(
     val report: ExportReport? = null,
     val request: String = "",
+    val range: String = ExportRange.ALL,
     val pending: Boolean = false,
     val uncertain: Boolean = false,
     val writable: Boolean = false,
@@ -86,6 +88,10 @@ internal fun ExportStatusCard(state: ExportUiState, onExport: () -> Unit, modifi
                 else -> stringResource(R.string.export_complete)
             }
             ExportSummary(phaseText, state.canRequest, Modifier.testTag("export:phase"))
+            ExportSummary(
+                stringResource(R.string.export_range_current, ExportRange.label(state.range, System.currentTimeMillis())),
+                state.canRequest, Modifier.testTag("export:range"),
+            )
             val output = report?.output.orEmpty()
             if (output.isNotEmpty()) ExportSummary(
                 stringResource(R.string.export_output, output), state.canRequest, Modifier.testTag("export:output"),

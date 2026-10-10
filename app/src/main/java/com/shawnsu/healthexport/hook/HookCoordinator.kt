@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import com.shawnsu.healthexport.config.SettingsKeys
 import com.shawnsu.healthexport.export.ExportProtocol
+import com.shawnsu.healthexport.export.ExportRequests
 import com.shawnsu.healthexport.export.ExportRuntime
 import com.shawnsu.healthexport.hook.util.ModuleLogger
 import io.github.libxposed.api.XposedInterface
@@ -44,12 +45,19 @@ internal object HookCoordinator {
         logger: ModuleLogger,
     ) {
         if (application.packageName != HookInstallPolicy.TARGET_PACKAGE) return
+        val preferences = try {
+            framework.getRemotePreferences(SettingsKeys.GROUP)
+        } catch (error: RuntimeException) {
+            logger.warn("Export request unavailable: ${error.javaClass.simpleName}")
+            null
+        }
         val exportRequest = try {
-            framework.getRemotePreferences(SettingsKeys.GROUP).getString(ExportProtocol.REQUEST, "").orEmpty()
+            preferences?.getString(ExportProtocol.REQUEST, "").orEmpty()
         } catch (error: RuntimeException) {
             logger.warn("Export request unavailable: ${error.javaClass.simpleName}")
             ""
         }
-        ExportRuntime.start(application, exportRequest, logger)
+        val exportRange = ExportRequests.range(preferences)
+        ExportRuntime.start(application, exportRequest, exportRange, logger)
     }
 }

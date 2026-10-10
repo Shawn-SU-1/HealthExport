@@ -90,6 +90,7 @@ class ExportActivity : AppCompatActivity(), ModuleApplication.ServiceStateListen
                 ExportScreen(
                     exportState = exportState,
                     onExport = { exportController.request() },
+                    onRangeChange = { exportController.setRange(it) },
                     onClose = ::finish,
                 )
             }
@@ -105,6 +106,7 @@ class ExportActivity : AppCompatActivity(), ModuleApplication.ServiceStateListen
 internal fun ExportScreen(
     exportState: ExportUiState,
     onExport: () -> Unit,
+    onRangeChange: (String) -> Unit,
     onClose: () -> Unit,
 ) {
     val scrollBehavior = MiuixScrollBehavior()
@@ -148,6 +150,12 @@ internal fun ExportScreen(
             item(key = "export_status") {
                 ExportStatusCard(
                     exportState, onExport,
+                    Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+            }
+            item(key = "export_range") {
+                ExportRangeCard(
+                    exportState.range, onRangeChange,
                     Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 )
             }

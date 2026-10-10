@@ -39,6 +39,8 @@ internal object ExportRuntime {
     private const val TIMEOUT_MS = 90_000L
     private const val CELL_LIMIT = 4000
     private const val MIN_TIME_MS = 946_684_800_000L
+    private const val MIME_MARKDOWN = "text/markdown"
+    private const val MIME_JSON = "application/json"
     private val TIME_KEYS = setOf("start_time", "end_time", "create_time", "modified_time")
     private val PRIORITY_COLUMNS = listOf("start_time", "end_time", "point_value", "point_unit", "sub_type_id")
     private val TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
@@ -56,16 +58,19 @@ internal object ExportRuntime {
         "temperature" to "体温",
     )
 
-    fun start(app: Application, request: String, logger: ModuleLogger) {
+    fun start(app: Application, request: String, range: String, logger: ModuleLogger) {
         Thread({
-            try { execute(app, request, logger) }
+            try { execute(app, request, range, logger) }
             catch (error: Throwable) { logger.warn("Export worker unavailable: ${error.javaClass.simpleName}") }
         }, "huawei-health-export").start()
     }
 
-    private fun execute(app: Application, request: String, logger: ModuleLogger) {
+    private fun execute(app: Application, request: String, range: String, logger: ModuleLogger) {
         val dir = File(app.filesDir, DIR_NAME)
         val trace = Trace()
+        val bounds = ExportRange.resolve(range, System.currentTimeMillis())
+        val rangeLabel = ExportRange.label(range, bounds.second)
+        val summary = ExportSummaryBuilder()
         var report = ExportReport(request = request, run = UUID.randomUUID().toString(), started = System.currentTimeMillis())
         val authority = "content://${ExportProtocol.AUTHORITY}".toUri()
         fun publish() {
@@ -93,7 +98,7 @@ internal object ExportRuntime {
                 logger.info("Export skipped: already exported")
                 return
             }
-            trace.add("启动导出，预约 ${request.take(8)}")
+            trace.add("启动导出，预约 ${request.take(8)}，时间范围：$rangeLabel")
             publish()
             val begin = SystemClock.elapsedRealtime()
             val bridge = HiHealthBridge(app)
@@ -106,7 +111,7 @@ internal object ExportRuntime {
                 val started = SystemClock.elapsedRealtime()
                 trace.add("${dataset.id}：读取中")
                 val section = try {
-                    val outcome = readDataset(bridge, dataset, if (index == 0) TIMEOUT_FIRST_MS else TIMEOUT_MS)
+                    val outcome = readDataset(bridge, dataset, if (index == 0) TIMEOUT_FIRST_MS else TIMEOUT_MS, bounds.first, bounds.second)
                     trace.add("${dataset.id}：${outcome.items.size} 行（${SystemClock.elapsedRealtime() - started}ms，回调 ${outcome.callbacks} 次）")
                     SectionData(dataset.id, dataset.types, outcome.items, null)
                 } catch (error: Throwable) {
@@ -131,8 +136,20 @@ internal object ExportRuntime {
                 return
             }
             val filename = "huawei-health-export-${FILE_FORMAT.format(Instant.ofEpochMilli(report.started).atZone(ZoneId.systemDefault()))}.md"
-            val output = try {
-                saveMarkdown(app, filename) { writer -> emitMarkdown(writer, bridge, sections, report.started) }
+            val outputs = try {
+                saveOutputs(app, filename, summary = {
+                    summary.build(
+                        exportedAt = report.started,
+                        rangeCode = range,
+                        rangeLabel = rangeLabel,
+                        startMs = bounds.first,
+                        endMs = bounds.second,
+                        counts = counts,
+                        failed = failed,
+                    ).encode()
+                }) { writer ->
+                    emitMarkdown(writer, bridge, sections, report.started, summary, rangeLabel)
+                }
             } catch (error: Throwable) {
                 trace.add("写出失败：${error.javaClass.simpleName}")
                 report = report.copy(phase = "failed", error = "write_error", sequence = report.sequence + 1, time = System.currentTimeMillis())
@@ -140,6 +157,12 @@ internal object ExportRuntime {
                 logger.warn("Export write failed: ${error.javaClass.simpleName}")
                 return
             }
+            val output = outputs.markdown
+            if (outputs.summaryPath.isEmpty()) trace.add("摘要未写出")
+            else trace.add("摘要：${outputs.summaryPath}")
+            runCatching {
+                app.contentResolver.call(authority, ExportProtocol.ACTION_SUMMARY, outputs.summary, null)
+            }.onFailure { logger.warn("Export summary deferred: ${it.javaClass.simpleName}") }
             trace.add("写出：$output")
             trace.add("完成：共 ${counts.values.sum()} 行，${failed.size} 个数据集失败，耗时 ${SystemClock.elapsedRealtime() - begin}ms")
             report = report.copy(phase = "complete", output = output, sequence = report.sequence + 1, time = System.currentTimeMillis())
@@ -154,13 +177,19 @@ internal object ExportRuntime {
     }
 
     /** 反射读取一个数据集；成功返回原始 HiHealthData 引用列表（共享宿主对象，不复制）与回调次数。 */
-    private fun readDataset(bridge: HiHealthBridge, dataset: ExportProtocol.Dataset, timeoutMs: Long): ReadOutcome {
+    private fun readDataset(
+        bridge: HiHealthBridge,
+        dataset: ExportProtocol.Dataset,
+        timeoutMs: Long,
+        startMs: Long,
+        endMs: Long,
+    ): ReadOutcome {
         val option = bridge.optionConstructor.newInstance()
         // 数组参数显式包一层，避免 Kotlin 对 Java vararg 的展开歧义。
         bridge.setType.invoke(option, *arrayOf<Any?>(dataset.types))
         dataset.keys?.let { bridge.setConstantsKey.invoke(option, *arrayOf<Any?>(it)) }
-        bridge.setStartTime.invoke(option, 0L)
-        bridge.setEndTime.invoke(option, System.currentTimeMillis())
+        bridge.setStartTime.invoke(option, startMs)
+        bridge.setEndTime.invoke(option, endMs)
         bridge.setCount.invoke(option, 0)
         bridge.setSortOrder.invoke(option, 1)
 
@@ -197,12 +226,19 @@ internal object ExportRuntime {
         return ReadOutcome(items, callbacks.get())
     }
 
-    private fun emitMarkdown(writer: Writer, bridge: HiHealthBridge, sections: List<SectionData>, started: Long) {
+    private fun emitMarkdown(
+        writer: Writer,
+        bridge: HiHealthBridge,
+        sections: List<SectionData>,
+        started: Long,
+        summary: ExportSummaryBuilder,
+        rangeLabel: String,
+    ) {
         val ok = sections.count { it.reason == null }
         writer.appendLine("# 华为运动健康数据导出")
         writer.appendLine()
         writer.appendLine("- 导出时间：${formatTime(started)}")
-        writer.appendLine("- 时间范围：全部历史（startTime=0）")
+        writer.appendLine("- 时间范围：$rangeLabel")
         writer.appendLine("- 数据集：${sections.size} 个，成功 $ok 个，失败 ${sections.size - ok} 个")
         writer.appendLine()
         writer.appendLine("| 数据集 | 类型编码 | 条数 |")
@@ -220,14 +256,19 @@ internal object ExportRuntime {
             when {
                 section.reason != null -> writer.appendLine("读取失败：${section.reason}")
                 section.items.isEmpty() -> writer.appendLine("（无数据）")
-                else -> emitTable(writer, bridge, section)
+                else -> emitTable(writer, bridge, section, summary)
             }
             writer.appendLine()
         }
     }
 
     /** 两遍式流式输出：第一遍收集列集合与排序键，第二遍按 start_time 升序逐行写出。 */
-    private fun emitTable(writer: Writer, bridge: HiHealthBridge, section: SectionData) {
+    private fun emitTable(
+        writer: Writer,
+        bridge: HiHealthBridge,
+        section: SectionData,
+        summary: ExportSummaryBuilder,
+    ) {
         val items = section.items
         val count = items.size
         val starts = LongArray(count)
@@ -241,6 +282,8 @@ internal object ExportRuntime {
             if (holder != null) present.addAll(holder.keySet())
             starts[index] = (holder?.get("start_time") as? Number)?.toLong() ?: 0L
             types[index] = runCatching { bridge.getType.invoke(item) as? Int }.getOrNull() ?: 0
+            // 与 Markdown 同源统计：只累加，不改变写出内容。
+            if (holder != null) summary.accept(section.id, types[index], starts[index]) { key -> holder.get(key) }
             if (!hasDevice) hasDevice = runCatching { !(bridge.getDeviceUuid.invoke(item) as? String).isNullOrEmpty() }.getOrDefault(false)
             if (!hasOwner) hasOwner = runCatching { ((bridge.getOwnerId.invoke(item) as? Int) ?: 0) != 0 }.getOrDefault(false)
         }
@@ -295,32 +338,60 @@ internal object ExportRuntime {
     private fun formatTime(ms: Long): String =
         TIME_FORMAT.format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault())) + " ($ms)"
 
-    /** 写出链：公共 Download 目录 → 应用外部目录 → 内部 filesDir，逐级回退。 */
-    private fun saveMarkdown(app: Application, filename: String, body: (Writer) -> Unit): String {
+    /** 一次导出的两份产物：Markdown 正文与结构化摘要。 */
+    private class Outputs(val markdown: String, val summary: String, val summaryPath: String)
+
+    /**
+     * 写出链：公共 Download 目录 → 应用外部目录 → 内部 filesDir，逐级回退。
+     * summary 在 Markdown 正文写完后求值，保证统计覆盖全部已写出的行。
+     */
+    private fun saveOutputs(
+        app: Application,
+        filename: String,
+        summary: () -> String,
+        body: (Writer) -> Unit,
+    ): Outputs {
+        val summaryName = filename.removeSuffix(".md") + ExportProtocol.SUMMARY_SUFFIX
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            saveToDownloads(app, filename, body)?.let { return it }
+            val markdown = saveToDownloads(app, filename, MIME_MARKDOWN, body)
+            if (markdown != null) {
+                val json = summary()
+                val path = saveToDownloads(app, summaryName, MIME_JSON) { it.write(json) }
+                return Outputs(markdown, json, path.orEmpty())
+            }
         }
         val external = runCatching {
             val root = app.getExternalFilesDir(null) ?: throw IllegalStateException("external unavailable")
             val dir = File(root, "export")
             check(dir.isDirectory || dir.mkdirs())
-            val file = File(dir, filename)
-            file.bufferedWriter().use { body(it) }
-            file.absolutePath
+            writePair(dir, filename, summaryName, summary, body)
         }.getOrNull()
         if (external != null) return external
         val dir = File(app.filesDir, "export")
         check(dir.isDirectory || dir.mkdirs())
-        val file = File(dir, filename)
-        file.bufferedWriter().use { body(it) }
-        return file.absolutePath
+        return writePair(dir, filename, summaryName, summary, body)
     }
 
-    private fun saveToDownloads(app: Application, filename: String, body: (Writer) -> Unit): String? {
+    private fun writePair(
+        dir: File,
+        filename: String,
+        summaryName: String,
+        summary: () -> String,
+        body: (Writer) -> Unit,
+    ): Outputs {
+        val markdownFile = File(dir, filename)
+        markdownFile.bufferedWriter().use { body(it) }
+        val json = summary()
+        val summaryFile = File(dir, summaryName)
+        summaryFile.bufferedWriter().use { it.write(json) }
+        return Outputs(markdownFile.absolutePath, json, summaryFile.absolutePath)
+    }
+
+    private fun saveToDownloads(app: Application, filename: String, mime: String, body: (Writer) -> Unit): String? {
         val resolver = app.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, filename)
-            put(MediaStore.Downloads.MIME_TYPE, "text/markdown")
+            put(MediaStore.Downloads.MIME_TYPE, mime)
             put(MediaStore.Downloads.RELATIVE_PATH, "Download/HuaweiHealthExport")
             put(MediaStore.Downloads.IS_PENDING, 1)
         }

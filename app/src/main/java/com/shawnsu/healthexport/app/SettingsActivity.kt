@@ -35,6 +35,9 @@ class SettingsActivity : AppCompatActivity(), ModuleApplication.ServiceStateList
                     onOpenExport = {
                         startActivity(ExportActivity.intent(this))
                     },
+                    onOpenAnalysis = {
+                        startActivity(AnalysisActivity.intent(this))
+                    },
                     onRefreshStatus = ::refreshStatus,
                 )
             }

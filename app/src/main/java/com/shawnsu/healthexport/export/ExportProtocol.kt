@@ -7,8 +7,25 @@ import org.json.JSONObject
 object ExportProtocol {
     const val VERSION = 1
     const val REQUEST = "export.request"
+
+    /** 预约时可选的时间范围编码（见 [ExportRange]）；键缺席等价于全部历史，兼容旧预约。 */
+    const val RANGE = "export.range"
+
+    /** 目标进程回传动作：进度报告与导出摘要。 */
+    const val ACTION_REPORT = "report"
+    const val ACTION_SUMMARY = "summary"
+
     const val AUTHORITY = "com.shawnsu.healthexport.export"
+
+    /** 模块 App 侧报告存储。 */
     const val STORE = "export_reports"
+
+    /** 模块 App 侧摘要存储：与报告分离，便于独立更新。 */
+    const val SUMMARY_STORE = "export_summary"
+    const val SUMMARY_KEY = "summary"
+
+    /** 摘要文件名后缀：与 Markdown 同目录同名，仅扩展名不同。 */
+    const val SUMMARY_SUFFIX = ".summary.json"
 
     /** 导出进行中超过该时长没有新报告即视为状态待确认（最慢的数据集为全量心率）。 */
     const val STALE_MS = 900_000L
