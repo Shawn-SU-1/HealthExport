@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <queries>
+        <package android:name="com.huawei.health" />
+    </queries>
+
+    <application
+        android:name=".app.ModuleApplication"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.HealthExport">
+        <!-- call() 校验 Binder UID，仅接收脱敏导出报告；不提供数据查询或配置写入。 -->
+        <provider
+            android:name=".export.ExportProvider"
+            android:authorities="com.shawnsu.healthexport.export"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
+        <activity
+            android:name=".app.SettingsActivity"
+            android:exported="true"
+            android:label="@string/settings_title">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="de.robv.android.xposed.category.MODULE_SETTINGS" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".app.ExportActivity"
+            android:exported="false" />
+        <activity-alias
+            android:name=".LauncherActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:targetActivity=".app.SettingsActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+    </application>
+
+</manifest>

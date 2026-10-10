@@ -1,0 +1,2 @@
+# LSPosed 通过 META-INF/xposed/java_init.list 中的完整类名加载模块入口。
+-keep class com.shawnsu.healthexport.hook.HookEntry { *; }

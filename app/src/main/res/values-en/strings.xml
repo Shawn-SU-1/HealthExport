@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HealthExport</string>
+    <string name="settings_title">HealthExport</string>
+    <string name="back">Back</string>
+    <string name="settings_status_connected">LSPosed service connected</string>
+    <string name="settings_status_connected_summary">Module service is ready. You can schedule an export</string>
+    <string name="settings_status_disconnected">LSPosed service disconnected</string>
+    <string name="settings_status_disconnected_summary">Make sure the module is enabled in LSPosed</string>
+    <string name="scope_settings_title">Request LSPosed scope</string>
+    <string name="scope_settings_disconnected">LSPosed service is disconnected</string>
+    <string name="scope_settings_loading">Reading scope status…</string>
+    <string name="scope_settings_updating">Updating LSPosed scope…</string>
+    <string name="scope_settings_error">Scope operation failed. Try again</string>
+    <string name="scope_settings_granted">Huawei Health is in the LSPosed scope</string>
+    <string name="scope_settings_not_granted">Allow the module to hook Huawei Health</string>
+</resources>

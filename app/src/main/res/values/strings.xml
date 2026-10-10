@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">HealthExport</string>
+    <string name="settings_title">HealthExport</string>
+    <string name="back">返回</string>
+    <string name="settings_status_connected">LSPosed 服务已连接</string>
+    <string name="settings_status_connected_summary">模块服务正常，可预约导出</string>
+    <string name="settings_status_disconnected">LSPosed 服务未连接</string>
+    <string name="settings_status_disconnected_summary">请确认模块已在 LSPosed 中启用</string>
+    <string name="scope_settings_title">请求 LSPosed 作用域</string>
+    <string name="scope_settings_disconnected">LSPosed 服务未连接</string>
+    <string name="scope_settings_loading">正在读取作用域状态…</string>
+    <string name="scope_settings_updating">正在更新 LSPosed 作用域…</string>
+    <string name="scope_settings_error">作用域操作失败，请重试</string>
+    <string name="scope_settings_granted">已获得华为运动健康作用域</string>
+    <string name="scope_settings_not_granted">允许模块注入华为运动健康</string>
+</resources>

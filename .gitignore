@@ -1,0 +1,18 @@
+*.iml
+.gradle
+/local.properties
+/.idea/
+/.kotlin/
+.DS_Store
+build/
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+# 本地构建参考
+/调试/
+/.claude/
+/.zcf/
+/tools/
+/AGENTS.md
+/docs/
