@@ -59,12 +59,6 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 private val STAMP_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
-/** 睡眠分期占比条配色：四档在各主题下均有足够对比度。 */
-private val STAGE_DEEP_COLOR = Color(0xFF4A6FE3)
-private val STAGE_LIGHT_COLOR = Color(0xFF8FA9F2)
-private val STAGE_REM_COLOR = Color(0xFFE8A33D)
-private val STAGE_AWAKE_COLOR = Color(0xFF9AA1AF)
-
 /**
  * 导出数据的图文分析：数据来自导出时同源生成的 JSON 摘要，不解析 Markdown 正文。
  * 所有数值均为原始单位换算而来（米 → 公里、毫秒 → 小时、分钟 → 小时）。
@@ -169,10 +163,12 @@ private fun StepsCard(summary: ExportSummary) {
             stringResource(R.string.analysis_kcal_value, count(daily.calories)),
         )
         if (daily.months.size >= 2) {
-            BarChart(
+            ColumnChart(
                 values = daily.months.map { it.steps.toFloat() },
                 labels = daily.months.map { it.month },
-                modifier = Modifier.padding(top = 4.dp),
+                title = stringResource(R.string.analysis_chart_monthly_steps),
+                unit = stringResource(R.string.analysis_unit_steps),
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
     }
@@ -202,10 +198,13 @@ private fun SleepCard(summary: ExportSummary) {
         )
         val nights = sleep.months.filter { it.nights > 0 }
         if (nights.size >= 2) {
-            BarChart(
+            ColumnChart(
                 values = nights.map { it.minutes.toFloat() / it.nights / 60f },
                 labels = nights.map { it.month },
-                modifier = Modifier.padding(top = 4.dp),
+                title = stringResource(R.string.analysis_chart_nightly_sleep),
+                unit = stringResource(R.string.analysis_unit_hours),
+                modifier = Modifier.padding(top = 2.dp),
+                format = { decimal(it.toDouble()) },
             )
         }
         if (!detail.hasStages) {
@@ -213,11 +212,35 @@ private fun SleepCard(summary: ExportSummary) {
             return@SectionCard
         }
         GroupTitle(stringResource(R.string.analysis_sleep_stage_title))
-        StageBar(detail)
-        StageRow(R.string.analysis_sleep_deep, detail.deepMinutes, detail, STAGE_DEEP_COLOR)
-        StageRow(R.string.analysis_sleep_light, detail.lightMinutes, detail, STAGE_LIGHT_COLOR)
-        StageRow(R.string.analysis_sleep_rem, detail.remMinutes, detail, STAGE_REM_COLOR)
-        StageRow(R.string.analysis_sleep_awake, detail.awakeMinutes, detail, STAGE_AWAKE_COLOR)
+        CompositionBar(
+            listOf(
+                CompositionPart(
+                    stringResource(R.string.analysis_sleep_deep),
+                    detail.deepMinutes,
+                    ChartPalette.StageDeep,
+                ),
+                CompositionPart(
+                    stringResource(R.string.analysis_sleep_light),
+                    detail.lightMinutes,
+                    ChartPalette.StageLight,
+                ),
+                CompositionPart(
+                    stringResource(R.string.analysis_sleep_rem),
+                    detail.remMinutes,
+                    ChartPalette.StageRem,
+                ),
+                CompositionPart(
+                    stringResource(R.string.analysis_sleep_awake),
+                    detail.awakeMinutes,
+                    ChartPalette.StageAwake,
+                ),
+            ),
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        StageRow(R.string.analysis_sleep_deep, detail.deepMinutes, detail, ChartPalette.StageDeep)
+        StageRow(R.string.analysis_sleep_light, detail.lightMinutes, detail, ChartPalette.StageLight)
+        StageRow(R.string.analysis_sleep_rem, detail.remMinutes, detail, ChartPalette.StageRem)
+        StageRow(R.string.analysis_sleep_awake, detail.awakeMinutes, detail, ChartPalette.StageAwake)
         StatRow(
             stringResource(R.string.analysis_sleep_staged_nights),
             stringResource(R.string.analysis_days_value, detail.stagedNights),
@@ -260,42 +283,30 @@ private fun SleepCard(summary: ExportSummary) {
         detail.lastWakeTime?.let { StatRow(stringResource(R.string.analysis_sleep_last_off_bed), stamp(it)) }
         val stageMonths = detail.months.filter { it.deepMinutes + it.lightMinutes + it.remMinutes > 0L }
         if (stageMonths.size >= 2) {
-            GroupTitle(stringResource(R.string.analysis_sleep_deep_trend))
-            BarChart(
-                values = stageMonths.map { it.deepMinutes.toFloat() / 60f },
+            GroupTitle(stringResource(R.string.analysis_sleep_stage_trend))
+            StackedColumnChart(
+                segments = listOf(
+                    StackSegment(
+                        stringResource(R.string.analysis_sleep_deep),
+                        ChartPalette.StageDeep,
+                        stageMonths.map { it.deepMinutes.toFloat() / 60f },
+                    ),
+                    StackSegment(
+                        stringResource(R.string.analysis_sleep_light),
+                        ChartPalette.StageLight,
+                        stageMonths.map { it.lightMinutes.toFloat() / 60f },
+                    ),
+                    StackSegment(
+                        stringResource(R.string.analysis_sleep_rem),
+                        ChartPalette.StageRem,
+                        stageMonths.map { it.remMinutes.toFloat() / 60f },
+                    ),
+                ),
                 labels = stageMonths.map { it.month },
-                modifier = Modifier.padding(top = 4.dp),
+                title = stringResource(R.string.analysis_chart_stage_stack),
+                unit = stringResource(R.string.analysis_unit_hours),
+                modifier = Modifier.padding(top = 2.dp),
             )
-        }
-    }
-}
-
-/** 四档分期按时长比例铺满整行，直观看出深睡占了多少。 */
-@Composable
-private fun StageBar(detail: ExportSummary.SleepDetail) {
-    val total = detail.stageMinutes.toFloat()
-    if (total <= 0f) return
-    val parts = listOf(
-        detail.deepMinutes to STAGE_DEEP_COLOR,
-        detail.lightMinutes to STAGE_LIGHT_COLOR,
-        detail.remMinutes to STAGE_REM_COLOR,
-        detail.awakeMinutes to STAGE_AWAKE_COLOR,
-    )
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(10.dp)
-            .clip(RoundedCornerShape(5.dp)),
-    ) {
-        parts.forEach { (minutes, color) ->
-            if (minutes > 0L) {
-                Box(
-                    modifier = Modifier
-                        .weight(minutes.toFloat())
-                        .fillMaxHeight()
-                        .background(color),
-                )
-            }
         }
     }
 }
@@ -352,10 +363,11 @@ private fun HeartRateCard(summary: ExportSummary) {
         }
         DistributionStats(heart)
         if (heart.buckets.size >= 2) {
-            BarChart(
-                values = heart.buckets.map { it.count.toFloat() },
-                labels = heart.buckets.map { it.from.toString() },
-                modifier = Modifier.padding(top = 4.dp),
+            BucketChart(
+                buckets = heart.buckets.map { BucketBar(bucketLabel(it.from), it.count.toFloat()) },
+                title = stringResource(R.string.analysis_chart_hr_distribution),
+                unit = stringResource(R.string.analysis_unit_records),
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
     }
@@ -369,6 +381,8 @@ private fun BloodOxygenCard(summary: ExportSummary) {
             EmptyHint(stringResource(R.string.analysis_no_data))
             return@SectionCard
         }
+        val oxygenLow = (oxygen.series.minOfOrNull { it.min } ?: 90) - 2
+        val oxygenHigh = (oxygen.series.maxOfOrNull { it.max } ?: 100) + 2
         for (series in oxygen.series) {
             val nameRes = oxygenNameRes(series.type)
             GroupTitle(
@@ -379,9 +393,16 @@ private fun BloodOxygenCard(summary: ExportSummary) {
                 },
             )
             StatRow(stringResource(R.string.analysis_records), count(series.records.toLong()))
-            StatRow(stringResource(R.string.analysis_average), decimal(series.avg))
-            StatRow(stringResource(R.string.analysis_min), series.min.toString())
-            StatRow(stringResource(R.string.analysis_max), series.max.toString())
+            RangeBar(
+                label = stringResource(R.string.analysis_oxygen_range),
+                min = series.min,
+                avg = series.avg,
+                max = series.max,
+                scaleLow = oxygenLow.toFloat(),
+                scaleHigh = oxygenHigh.toFloat(),
+                unit = stringResource(R.string.analysis_unit_percent),
+                modifier = Modifier.padding(top = 2.dp),
+            )
         }
     }
 }
@@ -396,10 +417,11 @@ private fun PressureCard(summary: ExportSummary) {
         }
         DistributionStats(pressure)
         if (pressure.buckets.size >= 2) {
-            BarChart(
-                values = pressure.buckets.map { it.count.toFloat() },
-                labels = pressure.buckets.map { it.from.toString() },
-                modifier = Modifier.padding(top = 4.dp),
+            BucketChart(
+                buckets = pressure.buckets.map { BucketBar(bucketLabel(it.from), it.count.toFloat()) },
+                title = stringResource(R.string.analysis_chart_pressure_distribution),
+                unit = stringResource(R.string.analysis_unit_records),
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
     }
@@ -432,7 +454,7 @@ private fun WorkoutCard(summary: ExportSummary) {
         val types = workout.types.sortedByDescending { it.distanceM }.ifEmpty { workout.types }
         val maxDistance = types.maxOfOrNull { it.distanceM } ?: 0L
         val maxRecords = types.maxOfOrNull { it.records } ?: 0
-        for (type in types) {
+        types.forEachIndexed { index, type ->
             val fraction = if (maxDistance > 0L) {
                 type.distanceM.toFloat() / maxDistance
             } else if (maxRecords > 0) {
@@ -441,7 +463,8 @@ private fun WorkoutCard(summary: ExportSummary) {
                 0f
             }
             val nameRes = sportNameRes(type.id)
-            HorizontalBar(
+            RankedBar(
+                rank = index + 1,
                 label = if (nameRes != null) {
                     stringResource(nameRes)
                 } else {
@@ -451,6 +474,7 @@ private fun WorkoutCard(summary: ExportSummary) {
                     R.string.analysis_workout_item, type.records, decimal(type.distanceM / 1000.0),
                 ),
                 fraction = fraction,
+                color = if (index == 0) ChartPalette.Primary else ChartPalette.Secondary,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }
@@ -477,11 +501,28 @@ private fun WeightCard(summary: ExportSummary) {
             StatRow(stringResource(R.string.analysis_height), stringResource(R.string.analysis_cm_value, decimal(it)))
         }
         if (measured.size >= 2) {
-            LineChart(
+            TrendChart(
                 values = measured.map { it.weightKg!!.toFloat() },
                 labels = measured.map { DATE_FORMAT.format(Instant.ofEpochMilli(it.time).atZone(ZoneId.systemDefault())) },
-                modifier = Modifier.padding(top = 4.dp),
+                title = stringResource(R.string.analysis_chart_weight_trend),
+                unit = stringResource(R.string.analysis_unit_kg),
+                color = ChartPalette.Violet,
                 zeroBased = false,
+                modifier = Modifier.padding(top = 2.dp),
+                format = { decimal(it.toDouble()) },
+            )
+        }
+        val fat = measured.filter { it.bodyFatPercent != null }
+        if (fat.size >= 2) {
+            TrendChart(
+                values = fat.map { it.bodyFatPercent!!.toFloat() },
+                labels = fat.map { DATE_FORMAT.format(Instant.ofEpochMilli(it.time).atZone(ZoneId.systemDefault())) },
+                title = stringResource(R.string.analysis_chart_body_fat_trend),
+                unit = stringResource(R.string.analysis_unit_percent),
+                color = ChartPalette.Warm,
+                zeroBased = false,
+                modifier = Modifier.padding(top = 2.dp),
+                format = { decimal(it.toDouble()) },
             )
         }
     }
@@ -559,6 +600,9 @@ private fun EmptyHint(text: String) {
 }
 
 private fun count(value: Long): String = String.format(Locale.US, "%,d", value)
+
+/** 分桶区间标签：桶宽固定为 10，标出区间上下界。 */
+private fun bucketLabel(from: Int): String = "$from-${from + 9}"
 
 /** 运动类型名称；未收录的类型返回 null，界面回退到「运动类型 %d」。 */
 @StringRes
