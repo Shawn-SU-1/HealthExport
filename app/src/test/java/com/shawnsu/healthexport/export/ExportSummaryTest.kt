@@ -60,7 +60,7 @@ class ExportSummaryTest {
             .feed("daily", 40002, day1 + 3_600_000L, "point_value" to 500, "time_zone" to zone)
             .feed("daily", 40002, day2, "point_value" to 800, "time_zone" to zone)
             .feed("daily", 40004, day1, "point_value" to 1200, "time_zone" to zone)
-            .feed("daily", 40003, day1, "point_value" to 300, "time_zone" to zone)
+            .feed("daily", 40003, day1, "point_value" to 300000, "time_zone" to zone)
             .build()
 
         assertEquals(5, summary.daily.records)
@@ -172,12 +172,12 @@ class ExportSummaryTest {
             .feed(
                 "workout", 30001, day1,
                 "sub_type_id" to 258, "end_time" to day1 + 1_500_000L,
-                "metadata" to """{"totalTime":1500000,"totalDistance":5000,"totalCalories":300,"avgHeartRate":146}""",
+                "metadata" to """{"totalTime":1500000,"totalDistance":5000,"totalCalories":300000,"avgHeartRate":146}""",
             )
             .feed(
                 "workout", 30001, day2,
                 "sub_type_id" to 258, "end_time" to day2 + 600_000L,
-                "metadata" to """{"totalTime":0,"totalDistance":2000,"totalCalories":100}""",
+                "metadata" to """{"totalTime":0,"totalDistance":2000,"totalCalories":100000}""",
             )
             .feed("workout", 30001, day3, "sub_type_id" to 279, "end_time" to day3 + 900_000L, "metadata" to "{}")
             .build()
@@ -195,12 +195,140 @@ class ExportSummaryTest {
     }
 
     @Test
+    fun convertsCaloriesFromCaloriesToKilocalories() {
+        val summary = Recorder()
+            .feed("daily", 40003, day1, "point_value" to 380_588_187, "time_zone" to zone)
+            .build()
+
+        assertEquals(380_588L, summary.daily.calories)
+        assertEquals(380_588L, summary.daily.months[0].calories)
+    }
+
+    @Test
+    fun prefersAasmSleepStagesOverLegacyOnesPerNight() {
+        val summary = Recorder()
+            // 第 1 夜只有旧口径。
+            .feed("sleep", 44105, day1, "point_value" to 420, "time_zone" to zone)
+            .feed("sleep", 44102, day1, "point_value" to 60, "time_zone" to zone)
+            .feed("sleep", 44103, day1, "point_value" to 300, "time_zone" to zone)
+            .feed("sleep", 44101, day1, "point_value" to 40, "time_zone" to zone)
+            .feed("sleep", 44104, day1, "point_value" to 20, "time_zone" to zone)
+            // 第 2 夜新旧口径并存，新口径优先且不重复累计。
+            .feed("sleep", 44105, day2, "point_value" to 480, "time_zone" to zone)
+            .feed("sleep", 44112, day2, "point_value" to 90, "time_zone" to zone)
+            .feed("sleep", 44113, day2, "point_value" to 330, "time_zone" to zone)
+            .feed("sleep", 44111, day2, "point_value" to 50, "time_zone" to zone)
+            .feed("sleep", 44102, day2, "point_value" to 999, "time_zone" to zone)
+            .feed("sleep", 44104, day2, "point_value" to 10, "time_zone" to zone)
+            .build()
+
+        val detail = summary.sleep.detail
+        assertTrue(detail.hasStages)
+        assertEquals(2, detail.stagedNights)
+        assertEquals(150L, detail.deepMinutes)
+        assertEquals(630L, detail.lightMinutes)
+        assertEquals(90L, detail.remMinutes)
+        assertEquals(30L, detail.awakeMinutes)
+        assertEquals(900L, detail.stageMinutes)
+        assertEquals(75L, detail.deepPerNight)
+        assertEquals(1, detail.months.size)
+        assertEquals("2023-11", detail.months[0].month)
+        assertEquals(150L, detail.months[0].deepMinutes)
+    }
+
+    @Test
+    fun fallsBackToPhoneSideSleepStagesInSeconds() {
+        val summary = Recorder()
+            .feed("sleep", 44105, day1, "point_value" to 400, "time_zone" to zone)
+            .feed("sleep", 44001, day1, "point_value" to 6000, "time_zone" to zone)
+            .feed("sleep", 44002, day1, "point_value" to 18000, "time_zone" to zone)
+            .feed("sleep", 44003, day1, "point_value" to 1200, "time_zone" to zone)
+            .build()
+
+        val detail = summary.sleep.detail
+        assertTrue(detail.hasStages)
+        assertEquals(100L, detail.deepMinutes)
+        assertEquals(300L, detail.lightMinutes)
+        assertEquals(0L, detail.remMinutes)
+        assertEquals(20L, detail.awakeMinutes)
+    }
+
+    @Test
+    fun collectsSleepQualityMetricsAndLatestTimestamps() {
+        val summary = Recorder()
+            .feed("sleep", 44105, day1, "point_value" to 400, "time_zone" to zone)
+            .feed("sleep", 44102, day1, "point_value" to 60, "time_zone" to zone)
+            .feed("sleep", 44107, day1, "point_value" to 2, "time_zone" to zone)
+            .feed("sleep", 44108, day1, "point_value" to 30, "time_zone" to zone)
+            .feed("sleep", 44203, day1, "point_value" to 80, "time_zone" to zone)
+            .feed("sleep", 44218, day1, "point_value" to 12, "time_zone" to zone)
+            .feed("sleep", 44201, day1, "point_value" to day1, "time_zone" to zone)
+            .feed("sleep", 44105, day2, "point_value" to 420, "time_zone" to zone)
+            .feed("sleep", 44102, day2, "point_value" to 70, "time_zone" to zone)
+            .feed("sleep", 44107, day2, "point_value" to 4, "time_zone" to zone)
+            .feed("sleep", 44203, day2, "point_value" to 90, "time_zone" to zone)
+            .feed("sleep", 44218, day2, "point_value" to 18, "time_zone" to zone)
+            .feed("sleep", 44201, day2, "point_value" to day2, "time_zone" to zone)
+            // 乱序到达的时间戳不应覆盖更新的记录。
+            .feed("sleep", 44201, day1, "point_value" to day1, "time_zone" to zone)
+            .build()
+
+        val detail = summary.sleep.detail
+        assertEquals(6L, detail.wakeCount)
+        assertEquals(30L, detail.napMinutes)
+        assertEquals(85.0, detail.scoreAvg!!, 0.0001)
+        assertEquals(15.0, detail.latencyAvg!!, 0.0001)
+        assertEquals(3.0, detail.wakePerNight!!, 0.0001)
+        assertEquals(day2, detail.lastFallAsleep)
+        assertNull(detail.lastWakeUp)
+    }
+
+    @Test
+    fun skipsSleepDetailWhenOnlyTotalDurationIsAvailable() {
+        val summary = Recorder()
+            .feed("sleep", 44105, day1, "point_value" to 420, "time_zone" to zone)
+            .feed("sleep", 44110, day1, "point_value" to 109, "time_zone" to zone)
+            .build()
+
+        assertTrue(!summary.sleep.detail.hasStages)
+        assertEquals(0L, summary.sleep.detail.deepMinutes)
+    }
+
+    @Test
+    fun sortsWeightPointsByTime() {
+        val summary = Recorder()
+            .feed("weight", 2004, day3, "point_value" to 58.4)
+            .feed("weight", 2004, day1, "point_value" to 57.95)
+            .feed("weight", 2055, day1, "point_value" to 21.0)
+            .feed("weight", 2004, day2, "point_value" to 58.1)
+            .build()
+
+        assertEquals(listOf(day1, day2, day3), summary.weight.map { it.time })
+        assertEquals(58.4, summary.weight.last().weightKg!!, 0.0001)
+    }
+
+    @Test
+    fun roundTripsSleepDetailThroughJson() {
+        val summary = Recorder()
+            .feed("sleep", 44105, day1, "point_value" to 420, "time_zone" to zone)
+            .feed("sleep", 44112, day1, "point_value" to 80, "time_zone" to zone)
+            .feed("sleep", 44113, day1, "point_value" to 300, "time_zone" to zone)
+            .feed("sleep", 44111, day1, "point_value" to 30, "time_zone" to zone)
+            .feed("sleep", 44104, day1, "point_value" to 10, "time_zone" to zone)
+            .feed("sleep", 44203, day1, "point_value" to 88, "time_zone" to zone)
+            .feed("sleep", 44202, day1, "point_value" to day1 + 1000L, "time_zone" to zone)
+            .build()
+
+        assertEquals(summary, ExportSummary.decode(summary.encode()))
+    }
+
+    @Test
     fun rejectsForeignOrOversizedPayloads() {
         val summary = Recorder()
             .feed("daily", 40002, day1, "point_value" to 1000, "time_zone" to zone)
             .build()
 
-        val foreign = summary.encode().replace("\"schema\":1", "\"schema\":2")
+        val foreign = summary.encode().replace("\"schema\":2", "\"schema\":3")
         assertThrows(IllegalArgumentException::class.java) { ExportSummary.decode(foreign) }
         assertThrows(IllegalArgumentException::class.java) {
             ExportSummary.decode(" ".repeat(ExportSummary.MAX_RAW + 1))

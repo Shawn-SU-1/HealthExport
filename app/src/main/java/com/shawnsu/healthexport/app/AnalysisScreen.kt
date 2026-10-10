@@ -1,6 +1,9 @@
 package com.shawnsu.healthexport.app
 
+import androidx.annotation.StringRes
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,16 +12,24 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
@@ -47,6 +58,12 @@ import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 private val STAMP_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
+
+/** 睡眠分期占比条配色：四档在各主题下均有足够对比度。 */
+private val STAGE_DEEP_COLOR = Color(0xFF4A6FE3)
+private val STAGE_LIGHT_COLOR = Color(0xFF8FA9F2)
+private val STAGE_REM_COLOR = Color(0xFFE8A33D)
+private val STAGE_AWAKE_COLOR = Color(0xFF9AA1AF)
 
 /**
  * 导出数据的图文分析：数据来自导出时同源生成的 JSON 摘要，不解析 Markdown 正文。
@@ -161,9 +178,14 @@ private fun StepsCard(summary: ExportSummary) {
     }
 }
 
+/**
+ * 睡眠是分析的重点：总时长 → 分期构成（深睡 / 浅睡 / 快速眼动 / 清醒）→ 睡眠质量指标 → 深睡月度趋势。
+ * 账号未采集到分期时给出明确前提提示，而不是显示 0。
+ */
 @Composable
 private fun SleepCard(summary: ExportSummary) {
     val sleep = summary.sleep
+    val detail = sleep.detail
     SectionCard(stringResource(R.string.analysis_sleep), "analysis:sleep") {
         if (sleep.nights == 0) {
             EmptyHint(stringResource(R.string.analysis_no_data))
@@ -186,6 +208,137 @@ private fun SleepCard(summary: ExportSummary) {
                 modifier = Modifier.padding(top = 4.dp),
             )
         }
+        if (!detail.hasStages) {
+            EmptyHint(stringResource(R.string.analysis_sleep_no_stage))
+            return@SectionCard
+        }
+        GroupTitle(stringResource(R.string.analysis_sleep_stage_title))
+        StageBar(detail)
+        StageRow(R.string.analysis_sleep_deep, detail.deepMinutes, detail, STAGE_DEEP_COLOR)
+        StageRow(R.string.analysis_sleep_light, detail.lightMinutes, detail, STAGE_LIGHT_COLOR)
+        StageRow(R.string.analysis_sleep_rem, detail.remMinutes, detail, STAGE_REM_COLOR)
+        StageRow(R.string.analysis_sleep_awake, detail.awakeMinutes, detail, STAGE_AWAKE_COLOR)
+        StatRow(
+            stringResource(R.string.analysis_sleep_staged_nights),
+            stringResource(R.string.analysis_days_value, detail.stagedNights),
+        )
+        StatRow(
+            stringResource(R.string.analysis_sleep_deep_average),
+            stringResource(R.string.analysis_hour_value, decimal(detail.deepPerNight / 60.0)),
+        )
+        StatRow(
+            stringResource(R.string.analysis_sleep_deep_ratio),
+            stringResource(R.string.analysis_percent_value, decimal(detail.deepPercent)),
+        )
+        detail.scoreAvg?.let {
+            StatRow(
+                stringResource(R.string.analysis_sleep_score),
+                stringResource(R.string.analysis_sleep_score_value, decimal(it)),
+            )
+        }
+        detail.latencyAvg?.let {
+            StatRow(
+                stringResource(R.string.analysis_sleep_latency),
+                stringResource(R.string.analysis_sleep_latency_value, decimal(it)),
+            )
+        }
+        detail.wakePerNight?.let {
+            StatRow(
+                stringResource(R.string.analysis_sleep_wake_count),
+                stringResource(R.string.analysis_sleep_wake_count_value, decimal(it)),
+            )
+        }
+        if (detail.napMinutes > 0L) {
+            StatRow(
+                stringResource(R.string.analysis_sleep_nap),
+                stringResource(R.string.analysis_hour_value, decimal(detail.napMinutes / 60.0)),
+            )
+        }
+        detail.lastFallAsleep?.let { StatRow(stringResource(R.string.analysis_sleep_last_fall), stamp(it)) }
+        detail.lastWakeUp?.let { StatRow(stringResource(R.string.analysis_sleep_last_wake), stamp(it)) }
+        detail.lastBedTime?.let { StatRow(stringResource(R.string.analysis_sleep_last_bed), stamp(it)) }
+        detail.lastWakeTime?.let { StatRow(stringResource(R.string.analysis_sleep_last_off_bed), stamp(it)) }
+        val stageMonths = detail.months.filter { it.deepMinutes + it.lightMinutes + it.remMinutes > 0L }
+        if (stageMonths.size >= 2) {
+            GroupTitle(stringResource(R.string.analysis_sleep_deep_trend))
+            BarChart(
+                values = stageMonths.map { it.deepMinutes.toFloat() / 60f },
+                labels = stageMonths.map { it.month },
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
+}
+
+/** 四档分期按时长比例铺满整行，直观看出深睡占了多少。 */
+@Composable
+private fun StageBar(detail: ExportSummary.SleepDetail) {
+    val total = detail.stageMinutes.toFloat()
+    if (total <= 0f) return
+    val parts = listOf(
+        detail.deepMinutes to STAGE_DEEP_COLOR,
+        detail.lightMinutes to STAGE_LIGHT_COLOR,
+        detail.remMinutes to STAGE_REM_COLOR,
+        detail.awakeMinutes to STAGE_AWAKE_COLOR,
+    )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(10.dp)
+            .clip(RoundedCornerShape(5.dp)),
+    ) {
+        parts.forEach { (minutes, color) ->
+            if (minutes > 0L) {
+                Box(
+                    modifier = Modifier
+                        .weight(minutes.toFloat())
+                        .fillMaxHeight()
+                        .background(color),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StageRow(
+    @StringRes labelRes: Int,
+    minutes: Long,
+    detail: ExportSummary.SleepDetail,
+    color: Color,
+) {
+    val titleColors = BasicComponentDefaults.titleColor()
+    val summaryColors = BasicComponentDefaults.summaryColor()
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(color),
+            )
+            Text(
+                stringResource(labelRes),
+                fontSize = MiuixTheme.textStyles.body2.fontSize,
+                color = summaryColors.color,
+            )
+        }
+        Text(
+            stringResource(
+                R.string.analysis_sleep_stage_value,
+                decimal(minutes / 60.0),
+                decimal(detail.percentOf(minutes)),
+            ),
+            fontSize = MiuixTheme.textStyles.body2.fontSize,
+            fontWeight = FontWeight.Medium,
+            color = titleColors.color,
+        )
     }
 }
 
@@ -217,7 +370,14 @@ private fun BloodOxygenCard(summary: ExportSummary) {
             return@SectionCard
         }
         for (series in oxygen.series) {
-            GroupTitle(stringResource(R.string.analysis_oxygen_series, series.type))
+            val nameRes = oxygenNameRes(series.type)
+            GroupTitle(
+                if (nameRes != null) {
+                    stringResource(nameRes)
+                } else {
+                    stringResource(R.string.analysis_oxygen_series, series.type)
+                },
+            )
             StatRow(stringResource(R.string.analysis_records), count(series.records.toLong()))
             StatRow(stringResource(R.string.analysis_average), decimal(series.avg))
             StatRow(stringResource(R.string.analysis_min), series.min.toString())
@@ -280,8 +440,13 @@ private fun WorkoutCard(summary: ExportSummary) {
             } else {
                 0f
             }
+            val nameRes = sportNameRes(type.id)
             HorizontalBar(
-                label = stringResource(R.string.analysis_workout_type, type.id),
+                label = if (nameRes != null) {
+                    stringResource(nameRes)
+                } else {
+                    stringResource(R.string.analysis_workout_type, type.id)
+                },
                 valueText = stringResource(
                     R.string.analysis_workout_item, type.records, decimal(type.distanceM / 1000.0),
                 ),
@@ -301,7 +466,7 @@ private fun WeightCard(summary: ExportSummary) {
             EmptyHint(stringResource(R.string.analysis_no_data))
             return@SectionCard
         }
-        val latest = points.last()
+        val latest = measured.last()
         latest.weightKg?.let {
             StatRow(stringResource(R.string.analysis_weight_latest), stringResource(R.string.analysis_kg_value, decimal(it)))
         }
@@ -394,5 +559,50 @@ private fun EmptyHint(text: String) {
 }
 
 private fun count(value: Long): String = String.format(Locale.US, "%,d", value)
+
+/** 运动类型名称；未收录的类型返回 null，界面回退到「运动类型 %d」。 */
+@StringRes
+private fun sportNameRes(id: Int): Int? = when (id) {
+    128 -> R.string.analysis_sport_128
+    129 -> R.string.analysis_sport_129
+    130 -> R.string.analysis_sport_130
+    133 -> R.string.analysis_sport_133
+    137 -> R.string.analysis_sport_137
+    138 -> R.string.analysis_sport_138
+    139 -> R.string.analysis_sport_139
+    257 -> R.string.analysis_sport_257
+    258 -> R.string.analysis_sport_258
+    259 -> R.string.analysis_sport_259
+    260 -> R.string.analysis_sport_260
+    261 -> R.string.analysis_sport_261
+    262 -> R.string.analysis_sport_262
+    263 -> R.string.analysis_sport_263
+    264 -> R.string.analysis_sport_264
+    265 -> R.string.analysis_sport_265
+    266 -> R.string.analysis_sport_266
+    267 -> R.string.analysis_sport_267
+    270 -> R.string.analysis_sport_270
+    271 -> R.string.analysis_sport_271
+    273 -> R.string.analysis_sport_273
+    274 -> R.string.analysis_sport_274
+    275 -> R.string.analysis_sport_275
+    278 -> R.string.analysis_sport_278
+    279 -> R.string.analysis_sport_279
+    280 -> R.string.analysis_sport_280
+    281 -> R.string.analysis_sport_281
+    283 -> R.string.analysis_sport_283
+    else -> null
+}
+
+/** 血氧类型名称；未收录的类型返回 null，界面回退到「血氧类型 %d」。 */
+@StringRes
+private fun oxygenNameRes(type: Int): Int? = when (type) {
+    2103 -> R.string.analysis_oxygen_2103
+    2107 -> R.string.analysis_oxygen_2107
+    else -> null
+}
+
+private fun stamp(value: Long): String =
+    STAMP_FORMAT.format(Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()))
 
 private fun decimal(value: Double): String = String.format(Locale.US, "%.1f", value)

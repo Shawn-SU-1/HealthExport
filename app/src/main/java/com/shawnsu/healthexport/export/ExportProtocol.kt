@@ -40,7 +40,17 @@ object ExportProtocol {
     /** 用户确认的十类健康数据；顺序即导出文件中的章节顺序。 */
     val datasets: List<Dataset> = listOf(
         Dataset("daily", intArrayOf(40002, 40003, 40004), null),
-        Dataset("sleep", intArrayOf(44105, 44004, 44108, 44109, 44217, 44110, 44235), null),
+        // 睡眠：核心分期（44101-44113，分钟）、核心指标（44201-44235）、手机侧兜底（44001-44007，秒）。
+        // 逐位对齐实证见《数据读取实证汇总》§3 与 ExportSummary.acceptSleep。
+        Dataset(
+            "sleep",
+            intArrayOf(
+                44101, 44102, 44103, 44104, 44105, 44106, 44107, 44108, 44109, 44110,
+                44111, 44112, 44113, 44201, 44202, 44203, 44205, 44216, 44217, 44218,
+                44235, 44001, 44002, 44003, 44004, 44005, 44006, 44007,
+            ),
+            null,
+        ),
         Dataset("heart_rate", intArrayOf(46019), null),
         // BleConstants.WEIGHT_KEY 的值为 "test"（宿主卡片读取原文如此）。
         Dataset("weight", intArrayOf(10006), arrayOf("test")),
