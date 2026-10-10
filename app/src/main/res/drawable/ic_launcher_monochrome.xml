@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 单色层：由系统着色，仅需 alpha 形状 -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="9"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M28,70 L45,55 L58,62 L72.686,47.314" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M84,36 L79.05,53.678 L66.322,40.95 Z" />
+</vector>
