@@ -47,6 +47,13 @@ Download/HuaweiHealthExport/huawei-health-export-<时间>.md
 ./gradlew :app:assembleRelease
 ```
 
+## 隐私说明
+
+- 应用不申请任何网络权限，导出的数据只写入本机存储，不会上传到任何服务器。
+- 导出的 Markdown 与 JSON 摘要保存在设备本地，由用户自行保管与处置。
+- 应用已关闭系统备份与设备迁移（`android:allowBackup="false"` 并显式排除全部备份域），健康数据摘要不会进入云备份。
+- LSPosed 作用域仅包含 `com.huawei.health`；导出报告的进程间通道只接受本模块自身与华为运动健康进程的调用，且不提供任何数据查询或配置写入能力。
+
 ## 开源说明
 
 本项目基于 [nairain233/huawei-health-customization](https://github.com/nairain233/huawei-health-customization) 修改而来：仅保留其 LSPosed 模块框架（模块入口、服务连接与作用域管理）相关实现，导出功能、界面与其余代码均为独立实现。原项目与本项目均以 GNU GPL-3.0 授权，详见 [LICENSE](LICENSE)。

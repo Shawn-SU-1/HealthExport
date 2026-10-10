@@ -11,6 +11,9 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:supportsRtl="true"
         android:theme="@style/Theme.HealthExport">
         <!-- call() 校验 Binder UID，仅接收脱敏导出报告；不提供数据查询或配置写入。 -->

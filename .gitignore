@@ -16,3 +16,10 @@ local.properties
 /tools/
 /AGENTS.md
 /docs/
+# 本地凭据与构建产物（禁止入库）
+*.keystore
+*.jks
+.env*
+*.apk
+*.aab
+*.log
