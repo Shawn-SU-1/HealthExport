@@ -18,7 +18,6 @@ import com.shawnsu.healthexport.export.ExportRange
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.preference.ArrowPreference
@@ -36,7 +35,6 @@ private val RANGE_PRESETS = listOf(
 
 private const val CUSTOM_PREFIX = "custom:"
 private const val CUSTOM_DEFAULT_DAYS = 30L
-private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
 /**
  * 导出时间范围选择：预设（全部历史 / 最近 N 天）与自定义起止日期。

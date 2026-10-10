@@ -170,4 +170,27 @@
     <string name="analysis_sport_280">越野跑</string>
     <string name="analysis_sport_281">室内步行</string>
     <string name="analysis_sport_283">跳绳</string>
+
+    <!-- v1.1.4：导出 Markdown 报告与图表图片分享。 -->
+    <string name="analysis_export_section">导出与分享</string>
+    <string name="analysis_export_report">导出 Markdown 报告</string>
+    <string name="analysis_export_report_hint">把当前分析的完整数值整理为 Markdown 文件，可直接保存或分享。</string>
+    <string name="analysis_export_chart_hint">点击每张图表右上角的分享图标，即可把该图表导出为带 App 水印的图片。</string>
+    <string name="analysis_export_saved">已保存到 %1$s</string>
+    <string name="analysis_export_share_only">已通过系统分享</string>
+    <string name="analysis_export_failed">导出失败，请重试</string>
+    <string name="analysis_share_chart">分享图表</string>
+    <string name="analysis_share_via">分享</string>
+    <string name="analysis_report_title">数据分析报告</string>
+    <string name="analysis_report_footer">本报告由 %1$s 生成。</string>
+    <string name="analysis_report_col_item">项目</string>
+    <string name="analysis_report_col_value">数值</string>
+    <string name="analysis_report_col_type">运动类型</string>
+    <string name="analysis_report_col_count">次数</string>
+    <string name="analysis_report_col_month">月份</string>
+    <string name="analysis_report_col_steps">步数</string>
+    <string name="analysis_report_col_distance">距离（公里）</string>
+    <string name="analysis_report_col_duration">时长（小时）</string>
+    <string name="analysis_report_col_calories">热量（千卡）</string>
+    <string name="analysis_report_col_range">区间</string>
 </resources>

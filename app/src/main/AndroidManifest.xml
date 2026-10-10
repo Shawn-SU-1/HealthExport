@@ -22,6 +22,16 @@
             android:authorities="com.shawnsu.healthexport.export"
             android:exported="true"
             tools:ignore="ExportedContentProvider" />
+        <!-- 仅用于把分享用的缓存文件授权给系统分享目标，不对外暴露，也不申请任何存储权限。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <activity
             android:name=".app.SettingsActivity"
             android:exported="true"

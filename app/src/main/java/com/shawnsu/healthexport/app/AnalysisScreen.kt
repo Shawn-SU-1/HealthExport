@@ -1,7 +1,9 @@
 package com.shawnsu.healthexport.app
 
+import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,11 +28,19 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -40,8 +50,7 @@ import com.shawnsu.healthexport.R
 import com.shawnsu.healthexport.export.ExportSummary
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
@@ -52,12 +61,11 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.extended.Notes
+import top.yukonga.miuix.kmp.icon.extended.Share
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
-
-private val STAMP_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
-private val DATE_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 
 /**
  * 导出数据的图文分析：数据来自导出时同源生成的 JSON 摘要，不解析 Markdown 正文。
@@ -108,6 +116,7 @@ internal fun AnalysisScreen(summary: ExportSummary?, onClose: () -> Unit) {
                     }
                 }
             } else {
+                item(key = "analysis_export") { ExportShareCard(summary) }
                 item(key = "analysis_overview") { OverviewCard(summary) }
                 item(key = "analysis_steps") { StepsCard(summary) }
                 item(key = "analysis_sleep") { SleepCard(summary) }
@@ -126,7 +135,7 @@ internal fun AnalysisScreen(summary: ExportSummary?, onClose: () -> Unit) {
 
 @Composable
 private fun OverviewCard(summary: ExportSummary) {
-    SectionCard(stringResource(R.string.analysis_overview), "analysis:overview") {
+    SectionCard(stringResource(R.string.analysis_overview), "analysis:overview", "overview") {
         StatRow(
             stringResource(R.string.analysis_exported_at),
             STAMP_FORMAT.format(Instant.ofEpochMilli(summary.exportedAt).atZone(ZoneId.systemDefault())),
@@ -146,7 +155,7 @@ private fun OverviewCard(summary: ExportSummary) {
 @Composable
 private fun StepsCard(summary: ExportSummary) {
     val daily = summary.daily
-    SectionCard(stringResource(R.string.analysis_steps), "analysis:steps") {
+    SectionCard(stringResource(R.string.analysis_steps), "analysis:steps", "steps") {
         if (daily.records == 0) {
             EmptyHint(stringResource(R.string.analysis_no_data))
             return@SectionCard
@@ -182,7 +191,7 @@ private fun StepsCard(summary: ExportSummary) {
 private fun SleepCard(summary: ExportSummary) {
     val sleep = summary.sleep
     val detail = sleep.detail
-    SectionCard(stringResource(R.string.analysis_sleep), "analysis:sleep") {
+    SectionCard(stringResource(R.string.analysis_sleep), "analysis:sleep", "sleep") {
         if (sleep.nights == 0) {
             EmptyHint(stringResource(R.string.analysis_no_data))
             return@SectionCard
@@ -356,7 +365,7 @@ private fun StageRow(
 @Composable
 private fun HeartRateCard(summary: ExportSummary) {
     val heart = summary.heartRate
-    SectionCard(stringResource(R.string.analysis_heart_rate), "analysis:heart") {
+    SectionCard(stringResource(R.string.analysis_heart_rate), "analysis:heart", "heart-rate") {
         if (heart.records == 0) {
             EmptyHint(stringResource(R.string.analysis_no_data))
             return@SectionCard
@@ -376,7 +385,7 @@ private fun HeartRateCard(summary: ExportSummary) {
 @Composable
 private fun BloodOxygenCard(summary: ExportSummary) {
     val oxygen = summary.bloodOxygen
-    SectionCard(stringResource(R.string.analysis_blood_oxygen), "analysis:oxygen") {
+    SectionCard(stringResource(R.string.analysis_blood_oxygen), "analysis:oxygen", "blood-oxygen") {
         if (oxygen.records == 0) {
             EmptyHint(stringResource(R.string.analysis_no_data))
             return@SectionCard
@@ -410,7 +419,7 @@ private fun BloodOxygenCard(summary: ExportSummary) {
 @Composable
 private fun PressureCard(summary: ExportSummary) {
     val pressure = summary.pressure
-    SectionCard(stringResource(R.string.analysis_pressure), "analysis:pressure") {
+    SectionCard(stringResource(R.string.analysis_pressure), "analysis:pressure", "pressure") {
         if (pressure.records == 0) {
             EmptyHint(stringResource(R.string.analysis_no_data))
             return@SectionCard
@@ -430,7 +439,7 @@ private fun PressureCard(summary: ExportSummary) {
 @Composable
 private fun WorkoutCard(summary: ExportSummary) {
     val workout = summary.workout
-    SectionCard(stringResource(R.string.analysis_workout), "analysis:workout") {
+    SectionCard(stringResource(R.string.analysis_workout), "analysis:workout", "workout") {
         if (workout.records == 0) {
             EmptyHint(stringResource(R.string.analysis_no_data))
             return@SectionCard
@@ -485,7 +494,7 @@ private fun WorkoutCard(summary: ExportSummary) {
 private fun WeightCard(summary: ExportSummary) {
     val points = summary.weight
     val measured = points.filter { it.weightKg != null }
-    SectionCard(stringResource(R.string.analysis_weight), "analysis:weight") {
+    SectionCard(stringResource(R.string.analysis_weight), "analysis:weight", "weight") {
         if (measured.isEmpty()) {
             EmptyHint(stringResource(R.string.analysis_no_data))
             return@SectionCard
@@ -537,28 +546,171 @@ private fun DistributionStats(distribution: ExportSummary.Distribution) {
 }
 
 @Composable
-private fun SectionCard(title: String, testTag: String, content: @Composable ColumnScope.() -> Unit) {
+private fun SectionCard(
+    title: String,
+    testTag: String,
+    shareSlug: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val titleColors = BasicComponentDefaults.titleColor()
-    Card(
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    // 每个带图表标识的卡片各自持有一个绘图图层，用于把卡片内容原样截图后分享。
+    val layer = rememberGraphicsLayer()
+    val appName = stringResource(R.string.app_name)
+    val chooserTitle = stringResource(R.string.analysis_share_via)
+    val savedTemplate = stringResource(R.string.analysis_export_saved)
+    val shareOnlyText = stringResource(R.string.analysis_export_share_only)
+    val failedText = stringResource(R.string.analysis_export_failed)
+    val shareLabel = stringResource(R.string.analysis_share_chart)
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 4.dp)
             .testTag(testTag),
-        insideMargin = PaddingValues(0.dp),
     ) {
-        Column(
+        Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .then(
+                    // 分享按钮不放进来，避免把自己也截进图片。
+                    if (shareSlug == null) {
+                        Modifier
+                    } else {
+                        Modifier.drawWithContent {
+                            // record 是 DrawScope 上针对 GraphicsLayer 的成员扩展：尺寸默认取当前 DrawScope。
+                            layer.record { this@drawWithContent.drawContent() }
+                            drawLayer(layer)
+                        }
+                    },
+                ),
+            insideMargin = PaddingValues(0.dp),
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    title,
+                    modifier = if (shareSlug == null) Modifier else Modifier.padding(end = 40.dp),
+                    fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                    fontWeight = FontWeight.Medium,
+                    color = titleColors.color,
+                )
+                content()
+            }
+        }
+        if (shareSlug != null) {
+            IconButton(
+                onClick = {
+                    scope.launch {
+                        val result = runCatching {
+                            val shot = layer.toImageBitmap().asAndroidBitmap()
+                            val poster = composePoster(
+                                source = shot,
+                                accent = ChartPalette.Primary.toArgb(),
+                                title = appName,
+                                subtitle = title,
+                                stamp = fileStamp(System.currentTimeMillis()),
+                            )
+                            ShareExporter.shareImage(
+                                context = context,
+                                bitmap = poster,
+                                fileName = "HealthExport-$shareSlug-${fileStamp(System.currentTimeMillis())}.png",
+                                chooserTitle = chooserTitle,
+                            )
+                        }.getOrNull()
+                        Toast.makeText(
+                            context,
+                            when {
+                                result == null -> failedText
+                                result.savedPath != null -> String.format(savedTemplate, result.savedPath)
+                                else -> shareOnlyText
+                            },
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                },
+                modifier = Modifier.align(Alignment.TopEnd),
+            ) {
+                Icon(
+                    imageVector = MiuixIcons.Regular.Share,
+                    contentDescription = shareLabel,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 导出与分享入口：把当前分析的完整数值写成 Markdown 文件并调起系统分享。
+ * 图表图片则在每张卡片右上角的分享按钮上导出。
+ */
+@Composable
+private fun ExportShareCard(summary: ExportSummary) {
+    val titleColors = BasicComponentDefaults.titleColor()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val lookup = rememberTextLookup()
+    val chooserTitle = stringResource(R.string.analysis_share_via)
+    val savedTemplate = stringResource(R.string.analysis_export_saved)
+    val shareOnlyText = stringResource(R.string.analysis_export_share_only)
+    val failedText = stringResource(R.string.analysis_export_failed)
+    SectionCard(stringResource(R.string.analysis_export_section), "analysis:export") {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    scope.launch {
+                        val result = runCatching {
+                            ShareExporter.shareText(
+                                context = context,
+                                text = buildAnalysisMarkdown(summary, lookup),
+                                fileName = "HealthExport-analysis-${fileStamp(System.currentTimeMillis())}.md",
+                                chooserTitle = chooserTitle,
+                            )
+                        }.getOrNull()
+                        Toast.makeText(
+                            context,
+                            when {
+                                result == null -> failedText
+                                result.savedPath != null -> String.format(savedTemplate, result.savedPath)
+                                else -> shareOnlyText
+                            },
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = MiuixIcons.Regular.Notes,
+                contentDescription = null,
+            )
             Text(
-                title,
-                fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                stringResource(R.string.analysis_export_report),
+                fontSize = MiuixTheme.textStyles.body2.fontSize,
                 fontWeight = FontWeight.Medium,
                 color = titleColors.color,
             )
-            content()
+        }
+        EmptyHint(stringResource(R.string.analysis_export_report_hint))
+        EmptyHint(stringResource(R.string.analysis_export_chart_hint))
+    }
+}
+
+/** 报告生成器只依赖资源解析接口，便于在界面外复用与测试。 */
+@Composable
+private fun rememberTextLookup(): TextLookup {
+    val context = LocalContext.current
+    return remember(context) {
+        TextLookup { id, args ->
+            val resources = context.resources
+            if (args.isEmpty()) resources.getString(id) else resources.getString(id, *args)
         }
     }
 }
@@ -599,54 +751,3 @@ private fun EmptyHint(text: String) {
     Text(text, fontSize = MiuixTheme.textStyles.body2.fontSize, color = summaryColors.color)
 }
 
-private fun count(value: Long): String = String.format(Locale.US, "%,d", value)
-
-/** 分桶区间标签：桶宽固定为 10，标出区间上下界。 */
-private fun bucketLabel(from: Int): String = "$from-${from + 9}"
-
-/** 运动类型名称；未收录的类型返回 null，界面回退到「运动类型 %d」。 */
-@StringRes
-private fun sportNameRes(id: Int): Int? = when (id) {
-    128 -> R.string.analysis_sport_128
-    129 -> R.string.analysis_sport_129
-    130 -> R.string.analysis_sport_130
-    133 -> R.string.analysis_sport_133
-    137 -> R.string.analysis_sport_137
-    138 -> R.string.analysis_sport_138
-    139 -> R.string.analysis_sport_139
-    257 -> R.string.analysis_sport_257
-    258 -> R.string.analysis_sport_258
-    259 -> R.string.analysis_sport_259
-    260 -> R.string.analysis_sport_260
-    261 -> R.string.analysis_sport_261
-    262 -> R.string.analysis_sport_262
-    263 -> R.string.analysis_sport_263
-    264 -> R.string.analysis_sport_264
-    265 -> R.string.analysis_sport_265
-    266 -> R.string.analysis_sport_266
-    267 -> R.string.analysis_sport_267
-    270 -> R.string.analysis_sport_270
-    271 -> R.string.analysis_sport_271
-    273 -> R.string.analysis_sport_273
-    274 -> R.string.analysis_sport_274
-    275 -> R.string.analysis_sport_275
-    278 -> R.string.analysis_sport_278
-    279 -> R.string.analysis_sport_279
-    280 -> R.string.analysis_sport_280
-    281 -> R.string.analysis_sport_281
-    283 -> R.string.analysis_sport_283
-    else -> null
-}
-
-/** 血氧类型名称；未收录的类型返回 null，界面回退到「血氧类型 %d」。 */
-@StringRes
-private fun oxygenNameRes(type: Int): Int? = when (type) {
-    2103 -> R.string.analysis_oxygen_2103
-    2107 -> R.string.analysis_oxygen_2107
-    else -> null
-}
-
-private fun stamp(value: Long): String =
-    STAMP_FORMAT.format(Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()))
-
-private fun decimal(value: Double): String = String.format(Locale.US, "%.1f", value)

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 仅暴露分享用的缓存目录：导出与分享的文件先写入 cacheDir/shared/，再经 FileProvider 授权给分享目标。 -->
+<paths>
+    <cache-path
+        name="shared"
+        path="shared/" />
+</paths>
