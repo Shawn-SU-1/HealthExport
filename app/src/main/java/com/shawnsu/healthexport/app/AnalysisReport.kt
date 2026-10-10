@@ -6,26 +6,33 @@ import com.shawnsu.healthexport.export.ExportSummary
 /**
  * 由导出的 JSON 统计摘要生成 Markdown 分析报告，数值口径与「数据分析」界面完全一致。
  * 纯函数：所有文案经 [TextLookup] 取得，可在 JVM 单测中直接断言，无需 Android 环境。
+ *
+ * [images] 是各章节图表图片的路径（键为章节标识，如 `steps`），非空时插到对应标题下方，
+ * 使报告成为图文报告；留空则只输出表格。
  */
-internal fun buildAnalysisMarkdown(summary: ExportSummary, lookup: TextLookup): String {
+internal fun buildAnalysisMarkdown(
+    summary: ExportSummary,
+    lookup: TextLookup,
+    images: Map<String, String> = emptyMap(),
+): String {
     val builder = StringBuilder(4096)
     builder.append("# ").append(lookup.text(R.string.analysis_report_title)).append("\n\n")
-    appendOverview(builder, summary, lookup)
-    appendSteps(builder, summary, lookup)
-    appendSleep(builder, summary, lookup)
-    appendHeartRate(builder, summary, lookup)
-    appendBloodOxygen(builder, summary, lookup)
-    appendPressure(builder, summary, lookup)
-    appendWorkout(builder, summary, lookup)
-    appendWeight(builder, summary, lookup)
+    appendOverview(builder, summary, lookup, images["overview"])
+    appendSteps(builder, summary, lookup, images["steps"])
+    appendSleep(builder, summary, lookup, images["sleep"])
+    appendHeartRate(builder, summary, lookup, images["heart-rate"])
+    appendBloodOxygen(builder, summary, lookup, images["blood-oxygen"])
+    appendPressure(builder, summary, lookup, images["pressure"])
+    appendWorkout(builder, summary, lookup, images["workout"])
+    appendWeight(builder, summary, lookup, images["weight"])
     builder.append("---\n\n")
     builder.append(lookup.text(R.string.analysis_report_footer, lookup.text(R.string.app_name)))
     builder.append('\n')
     return builder.toString()
 }
 
-private fun appendOverview(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup) {
-    heading(builder, lookup.text(R.string.analysis_overview))
+private fun appendOverview(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup, image: String?) {
+    heading(builder, lookup.text(R.string.analysis_overview), image)
     tableStart(builder, lookup)
     row(builder, lookup.text(R.string.analysis_exported_at), stamp(summary.exportedAt))
     row(builder, lookup.text(R.string.analysis_range), summary.rangeLabel)
@@ -38,9 +45,9 @@ private fun appendOverview(builder: StringBuilder, summary: ExportSummary, looku
     tableEnd(builder)
 }
 
-private fun appendSteps(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup) {
+private fun appendSteps(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup, image: String?) {
     val daily = summary.daily
-    heading(builder, lookup.text(R.string.analysis_steps))
+    heading(builder, lookup.text(R.string.analysis_steps), image)
     if (daily.records == 0) {
         note(builder, lookup.text(R.string.analysis_no_data))
         return
@@ -60,10 +67,10 @@ private fun appendSteps(builder: StringBuilder, summary: ExportSummary, lookup: 
     }
 }
 
-private fun appendSleep(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup) {
+private fun appendSleep(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup, image: String?) {
     val sleep = summary.sleep
     val detail = sleep.detail
-    heading(builder, lookup.text(R.string.analysis_sleep))
+    heading(builder, lookup.text(R.string.analysis_sleep), image)
     if (sleep.nights == 0) {
         note(builder, lookup.text(R.string.analysis_no_data))
         return
@@ -148,9 +155,9 @@ private fun stageRow(
     )
 }
 
-private fun appendHeartRate(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup) {
+private fun appendHeartRate(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup, image: String?) {
     val heart = summary.heartRate
-    heading(builder, lookup.text(R.string.analysis_heart_rate))
+    heading(builder, lookup.text(R.string.analysis_heart_rate), image)
     if (heart.records == 0) {
         note(builder, lookup.text(R.string.analysis_no_data))
         return
@@ -159,9 +166,9 @@ private fun appendHeartRate(builder: StringBuilder, summary: ExportSummary, look
     bucketTable(builder, lookup, heart, R.string.analysis_chart_hr_distribution)
 }
 
-private fun appendPressure(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup) {
+private fun appendPressure(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup, image: String?) {
     val pressure = summary.pressure
-    heading(builder, lookup.text(R.string.analysis_pressure))
+    heading(builder, lookup.text(R.string.analysis_pressure), image)
     if (pressure.records == 0) {
         note(builder, lookup.text(R.string.analysis_no_data))
         return
@@ -192,9 +199,9 @@ private fun bucketTable(
     tableEnd(builder)
 }
 
-private fun appendBloodOxygen(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup) {
+private fun appendBloodOxygen(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup, image: String?) {
     val oxygen = summary.bloodOxygen
-    heading(builder, lookup.text(R.string.analysis_blood_oxygen))
+    heading(builder, lookup.text(R.string.analysis_blood_oxygen), image)
     if (oxygen.records == 0) {
         note(builder, lookup.text(R.string.analysis_no_data))
         return
@@ -213,9 +220,9 @@ private fun appendBloodOxygen(builder: StringBuilder, summary: ExportSummary, lo
     }
 }
 
-private fun appendWorkout(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup) {
+private fun appendWorkout(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup, image: String?) {
     val workout = summary.workout
-    heading(builder, lookup.text(R.string.analysis_workout))
+    heading(builder, lookup.text(R.string.analysis_workout), image)
     if (workout.records == 0) {
         note(builder, lookup.text(R.string.analysis_no_data))
         return
@@ -251,9 +258,9 @@ private fun appendWorkout(builder: StringBuilder, summary: ExportSummary, lookup
     tableEnd(builder)
 }
 
-private fun appendWeight(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup) {
+private fun appendWeight(builder: StringBuilder, summary: ExportSummary, lookup: TextLookup, image: String?) {
     val measured = summary.weight.filter { it.weightKg != null }
-    heading(builder, lookup.text(R.string.analysis_weight))
+    heading(builder, lookup.text(R.string.analysis_weight), image)
     if (measured.isEmpty()) {
         note(builder, lookup.text(R.string.analysis_no_data))
         return
@@ -273,8 +280,10 @@ private fun appendWeight(builder: StringBuilder, summary: ExportSummary, lookup:
     tableEnd(builder)
 }
 
-private fun heading(builder: StringBuilder, title: String) {
+/** 章节标题；带 [image] 时在标题下方插入图表图片，形成图文报告。 */
+private fun heading(builder: StringBuilder, title: String, image: String? = null) {
     builder.append("## ").append(title).append("\n\n")
+    if (image != null) builder.append("![](").append(image).append(")\n\n")
 }
 
 private fun note(builder: StringBuilder, text: String) {

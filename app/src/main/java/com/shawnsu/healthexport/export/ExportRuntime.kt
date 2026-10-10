@@ -11,6 +11,7 @@ import android.util.SparseArray
 import androidx.core.net.toUri
 import com.shawnsu.healthexport.hook.util.ModuleLogger
 import java.io.File
+import java.io.OutputStream
 import java.io.Writer
 import java.lang.reflect.Constructor
 import java.lang.reflect.InvocationTargetException
@@ -41,6 +42,8 @@ internal object ExportRuntime {
     private const val MIN_TIME_MS = 946_684_800_000L
     private const val MIME_MARKDOWN = "text/markdown"
     private const val MIME_JSON = "application/json"
+    private const val MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    private const val MIME_ZIP = "application/zip"
     private val TIME_KEYS = setOf("start_time", "end_time", "create_time", "modified_time")
     private val PRIORITY_COLUMNS = listOf("start_time", "end_time", "point_value", "point_unit", "sub_type_id")
     private val TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
@@ -137,19 +140,25 @@ internal object ExportRuntime {
             }
             val filename = "huawei-health-export-${FILE_FORMAT.format(Instant.ofEpochMilli(report.started).atZone(ZoneId.systemDefault()))}.md"
             val outputs = try {
-                saveOutputs(app, filename, summary = {
-                    summary.build(
-                        exportedAt = report.started,
-                        rangeCode = range,
-                        rangeLabel = rangeLabel,
-                        startMs = bounds.first,
-                        endMs = bounds.second,
-                        counts = counts,
-                        failed = failed,
-                    ).encode()
-                }) { writer ->
-                    emitMarkdown(writer, bridge, sections, report.started, summary, rangeLabel)
-                }
+                saveOutputs(
+                    app = app,
+                    filename = filename,
+                    summary = {
+                        summary.build(
+                            exportedAt = report.started,
+                            rangeCode = range,
+                            rangeLabel = rangeLabel,
+                            startMs = bounds.first,
+                            endMs = bounds.second,
+                            counts = counts,
+                            failed = failed,
+                        ).encode()
+                    },
+                    details = { buildDetailSheets(bridge, sections) },
+                    body = { writer ->
+                        emitMarkdown(writer, bridge, sections, report.started, summary, rangeLabel)
+                    },
+                )
             } catch (error: Throwable) {
                 trace.add("写出失败：${error.javaClass.simpleName}")
                 report = report.copy(phase = "failed", error = "write_error", sequence = report.sequence + 1, time = System.currentTimeMillis())
@@ -160,6 +169,7 @@ internal object ExportRuntime {
             val output = outputs.markdown
             if (outputs.summaryPath.isEmpty()) trace.add("摘要未写出")
             else trace.add("摘要：${outputs.summaryPath}")
+            outputs.extras.forEach { trace.add("明细：$it") }
             runCatching {
                 app.contentResolver.call(authority, ExportProtocol.ACTION_SUMMARY, outputs.summary, null)
             }.onFailure { logger.warn("Export summary deferred: ${it.javaClass.simpleName}") }
@@ -262,13 +272,25 @@ internal object ExportRuntime {
         }
     }
 
-    /** 两遍式流式输出：第一遍收集列集合与排序键，第二遍按 start_time 升序逐行写出。 */
+    /** 输出 Markdown 表格：统计只在首次建表时累加，保证与摘要口径一致。 */
     private fun emitTable(
         writer: Writer,
         bridge: HiHealthBridge,
         section: SectionData,
         summary: ExportSummaryBuilder,
     ) {
+        val table = buildTable(bridge, section, summary)
+        writer.appendLine("| " + table.columns.joinToString(" | ") + " |")
+        writer.appendLine("| " + table.columns.joinToString(" | ") { "---" } + " |")
+        for (row in table.rows) writer.appendLine("| " + row.joinToString(" | ") + " |")
+    }
+
+    /** 两遍式：第一遍收集列集合、排序键与统计，第二遍按 start_time 升序逐行组装。 */
+    private fun buildTable(
+        bridge: HiHealthBridge,
+        section: SectionData,
+        summary: ExportSummaryBuilder?,
+    ): Table {
         val items = section.items
         val count = items.size
         val starts = LongArray(count)
@@ -282,8 +304,8 @@ internal object ExportRuntime {
             if (holder != null) present.addAll(holder.keySet())
             starts[index] = (holder?.get("start_time") as? Number)?.toLong() ?: 0L
             types[index] = runCatching { bridge.getType.invoke(item) as? Int }.getOrNull() ?: 0
-            // 与 Markdown 同源统计：只累加，不改变写出内容。
-            if (holder != null) summary.accept(section.id, types[index], starts[index]) { key -> holder.get(key) }
+            // 与 Markdown 同源统计：只累加，不改变写出内容（生成明细时不重复统计）。
+            if (holder != null) summary?.accept(section.id, types[index], starts[index]) { key -> holder.get(key) }
             if (!hasDevice) hasDevice = runCatching { !(bridge.getDeviceUuid.invoke(item) as? String).isNullOrEmpty() }.getOrDefault(false)
             if (!hasOwner) hasOwner = runCatching { ((bridge.getOwnerId.invoke(item) as? Int) ?: 0) != 0 }.getOrDefault(false)
         }
@@ -295,27 +317,29 @@ internal object ExportRuntime {
         columns += extras
         if (hasDevice && "device_uuid" !in present) columns += "device_uuid"
         if (hasOwner && "owner_id" !in present) columns += "owner_id"
-        writer.appendLine("| " + columns.joinToString(" | ") + " |")
-        writer.appendLine("| " + columns.joinToString(" | ") { "---" } + " |")
         val order = (0 until count).sortedBy { starts[it] }
+        val rows = ArrayList<List<String>>(count)
         for (position in order) {
             val item = items[position]
             val cells = runCatching { cellsOf(bridge, item) }.getOrNull() ?: emptyMap<String, String>()
-            val line = StringBuilder(160)
-            line.append("| ")
-            columns.forEachIndexed { columnIndex, column ->
-                if (columnIndex > 0) line.append(" | ")
+            rows += columns.map { column ->
                 when (column) {
-                    "type" -> line.append(types[position])
-                    "device_uuid" -> line.append(runCatching { bridge.getDeviceUuid.invoke(item) as? String }.getOrNull().orEmpty())
-                    "owner_id" -> line.append(runCatching { bridge.getOwnerId.invoke(item) as? Int }.getOrNull() ?: 0)
-                    else -> line.append(cells[column].orEmpty())
+                    "type" -> types[position].toString()
+                    "device_uuid" -> runCatching { bridge.getDeviceUuid.invoke(item) as? String }.getOrNull().orEmpty()
+                    "owner_id" -> (runCatching { bridge.getOwnerId.invoke(item) as? Int }.getOrNull() ?: 0).toString()
+                    else -> cells[column].orEmpty()
                 }
             }
-            line.append(" |")
-            writer.appendLine(line)
         }
+        return Table(columns, rows)
     }
+
+    /** 明细表：只用已成功读到的数据集，工作表名取中文数据集名。 */
+    private fun buildDetailSheets(bridge: HiHealthBridge, sections: List<SectionData>): List<DetailSheet> =
+        sections.filter { it.reason == null && it.items.isNotEmpty() }.map { section ->
+            val table = buildTable(bridge, section, null)
+            DetailSheet(nameOf(section.id), table.columns, table.rows)
+        }
 
     private fun cellsOf(bridge: HiHealthBridge, item: Any): Map<String, String> {
         val holder = bridge.getValueHolder.invoke(item) as? ContentValues ?: return emptyMap()
@@ -338,8 +362,16 @@ internal object ExportRuntime {
     private fun formatTime(ms: Long): String =
         TIME_FORMAT.format(Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault())) + " ($ms)"
 
-    /** 一次导出的两份产物：Markdown 正文与结构化摘要。 */
-    private class Outputs(val markdown: String, val summary: String, val summaryPath: String)
+    /** 一次 Markdown 表格的列与数据行。 */
+    private class Table(val columns: List<String>, val rows: List<List<String>>)
+
+    /** 一次导出的产物：Markdown 正文、结构化摘要，以及可选的明细产物路径。 */
+    private class Outputs(
+        val markdown: String,
+        val summary: String,
+        val summaryPath: String,
+        val extras: List<String> = emptyList(),
+    )
 
     /**
      * 写出链：公共 Download 目录 → 应用外部目录 → 内部 filesDir，逐级回退。
@@ -349,34 +381,51 @@ internal object ExportRuntime {
         app: Application,
         filename: String,
         summary: () -> String,
+        details: () -> List<DetailSheet>,
         body: (Writer) -> Unit,
     ): Outputs {
-        val summaryName = filename.removeSuffix(".md") + ExportProtocol.SUMMARY_SUFFIX
+        val base = filename.removeSuffix(".md")
+        val summaryName = base + ExportProtocol.SUMMARY_SUFFIX
+        val xlsxName = "$base-detail.xlsx"
+        val csvName = "$base-detail-csv.zip"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val markdown = saveToDownloads(app, filename, MIME_MARKDOWN, body)
             if (markdown != null) {
                 val json = summary()
                 val path = saveToDownloads(app, summaryName, MIME_JSON) { it.write(json) }
-                return Outputs(markdown, json, path.orEmpty())
+                // 明细在 Markdown 写完后生成：此时统计已覆盖全部行，且明细不参与统计累加。
+                val sheets = details()
+                val extras = ArrayList<String>(2)
+                DetailWriter.xlsx(sheets)?.let { bytes ->
+                    saveBytesToDownloads(app, xlsxName, MIME_XLSX, bytes)?.let(extras::add)
+                }
+                DetailWriter.csvZip(sheets)?.let { bytes ->
+                    saveBytesToDownloads(app, csvName, MIME_ZIP, bytes)?.let(extras::add)
+                }
+                return Outputs(markdown, json, path.orEmpty(), extras)
             }
         }
         val external = runCatching {
             val root = app.getExternalFilesDir(null) ?: throw IllegalStateException("external unavailable")
             val dir = File(root, "export")
             check(dir.isDirectory || dir.mkdirs())
-            writePair(dir, filename, summaryName, summary, body)
+            writeOutputs(dir, filename, summaryName, xlsxName, csvName, summary, details, body)
         }.getOrNull()
         if (external != null) return external
         val dir = File(app.filesDir, "export")
         check(dir.isDirectory || dir.mkdirs())
-        return writePair(dir, filename, summaryName, summary, body)
+        return writeOutputs(dir, filename, summaryName, xlsxName, csvName, summary, details, body)
     }
 
-    private fun writePair(
+    /** 回退路径：全部产物写到同一个目录，返回各自的绝对路径。 */
+    private fun writeOutputs(
         dir: File,
         filename: String,
         summaryName: String,
+        xlsxName: String,
+        csvName: String,
         summary: () -> String,
+        details: () -> List<DetailSheet>,
         body: (Writer) -> Unit,
     ): Outputs {
         val markdownFile = File(dir, filename)
@@ -384,10 +433,32 @@ internal object ExportRuntime {
         val json = summary()
         val summaryFile = File(dir, summaryName)
         summaryFile.bufferedWriter().use { it.write(json) }
-        return Outputs(markdownFile.absolutePath, json, summaryFile.absolutePath)
+        val sheets = details()
+        val extras = ArrayList<String>(2)
+        DetailWriter.xlsx(sheets)?.let { bytes ->
+            val file = File(dir, xlsxName)
+            runCatching { file.writeBytes(bytes) }.onSuccess { extras += file.absolutePath }
+        }
+        DetailWriter.csvZip(sheets)?.let { bytes ->
+            val file = File(dir, csvName)
+            runCatching { file.writeBytes(bytes) }.onSuccess { extras += file.absolutePath }
+        }
+        return Outputs(markdownFile.absolutePath, json, summaryFile.absolutePath, extras)
     }
 
-    private fun saveToDownloads(app: Application, filename: String, mime: String, body: (Writer) -> Unit): String? {
+    private fun saveToDownloads(app: Application, filename: String, mime: String, body: (Writer) -> Unit): String? =
+        publishDownload(app, filename, mime) { stream -> stream.bufferedWriter(Charsets.UTF_8).use(body) }
+
+    private fun saveBytesToDownloads(app: Application, filename: String, mime: String, bytes: ByteArray): String? =
+        publishDownload(app, filename, mime) { stream -> stream.write(bytes) }
+
+    /** 写入公共下载目录：Android 10 起走 MediaStore，无需任何存储权限；失败返回 null。 */
+    private fun publishDownload(
+        app: Application,
+        filename: String,
+        mime: String,
+        body: (OutputStream) -> Unit,
+    ): String? {
         val resolver = app.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, filename)
@@ -398,7 +469,7 @@ internal object ExportRuntime {
         val uri = runCatching { resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) }.getOrNull() ?: return null
         return try {
             val stream = resolver.openOutputStream(uri) ?: throw IllegalStateException("no stream")
-            stream.bufferedWriter(Charsets.UTF_8).use { body(it) }
+            stream.use(body)
             val finished = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
             resolver.update(uri, finished, null, null)
             "Download/HuaweiHealthExport/$filename"

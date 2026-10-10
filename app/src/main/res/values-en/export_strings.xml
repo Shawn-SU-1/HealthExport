@@ -14,7 +14,7 @@
     <string name="export_save_failed">Unable to schedule the export. Try again</string>
     <string name="export_saving">Scheduling</string>
     <string name="export_request_uncertain">The schedule could not be confirmed. Scheduling is paused until the module service reconnects</string>
-    <string name="export_description">Exports health data in the selected time range from Huawei Health as a Markdown file and writes a JSON summary with the same name, used by the Data analysis screen. Finish data sync in Huawei Health before exporting.</string>
+    <string name="export_description">Exports health data in the selected time range from Huawei Health as a Markdown file, plus a JSON summary, an Excel detail workbook and a CSV detail archive with the same name. The summary feeds the Data analysis screen. Finish data sync in Huawei Health before exporting.</string>
     <string name="export_range_title">Export time range</string>
     <string name="export_range_all">All history</string>
     <string name="export_range_days_7">Last 7 days</string>
@@ -193,4 +193,18 @@
     <string name="analysis_report_col_duration">Duration (h)</string>
     <string name="analysis_report_col_calories">Calories (kcal)</string>
     <string name="analysis_report_col_range">Range</string>
+
+    <!-- v1.1.5: Illustrated report, share-all charts, poster style and detail export. -->
+    <string name="analysis_export_pack">Export illustrated report (with charts)</string>
+    <string name="analysis_export_pack_hint">Bundle the report and all 8 chart images into one zip; unzip for a fully illustrated report.</string>
+    <string name="analysis_share_all">Share all charts</string>
+    <string name="analysis_share_all_hint">Hand every chart image to the system share sheet at once; pick multiple targets.</string>
+    <string name="analysis_export_style">Poster style</string>
+    <string name="analysis_export_theme_dark">Dark</string>
+    <string name="analysis_export_theme_light">Light</string>
+    <string name="analysis_export_rounded">Rounded corners</string>
+    <string name="analysis_export_branded">Repository QR in the corner</string>
+    <string name="analysis_export_failed_reason">Export failed (%1$s)</string>
+    <string name="analysis_export_no_chart">Charts are not ready yet. Try again shortly</string>
+    <string name="analysis_export_detail_hint">CSV / Excel details are written to the HuaweiHealthExport folder during export, ready for pivot tables.</string>
 </resources>

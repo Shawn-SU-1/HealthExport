@@ -1,5 +1,7 @@
 package com.shawnsu.healthexport.app
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
@@ -23,22 +25,26 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -61,8 +67,13 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TopAppBar
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
+import top.yukonga.miuix.kmp.icon.extended.Image
+import top.yukonga.miuix.kmp.icon.extended.Photos
+import top.yukonga.miuix.kmp.icon.extended.Report
 import top.yukonga.miuix.kmp.icon.extended.Notes
 import top.yukonga.miuix.kmp.icon.extended.Share
+import top.yukonga.miuix.kmp.preference.RadioButtonPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
@@ -93,40 +104,58 @@ internal fun AnalysisScreen(summary: ExportSummary?, onClose: () -> Unit) {
             )
         },
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("settings:analysis")
-                .scrollEndHaptic()
-                .overScrollVertical()
-                .nestedScroll(scrollBehavior.nestedScrollConnection),
-            state = rememberLazyListState(),
-            contentPadding = PaddingValues(
-                start = safeInsets.calculateLeftPadding(layoutDirection),
-                top = padding.calculateTopPadding() + 8.dp,
-                end = safeInsets.calculateRightPadding(layoutDirection),
-                bottom = padding.calculateBottomPadding(),
-            ),
-            overscrollEffect = null,
+        val context = LocalContext.current
+        val shots = remember { ChartShots() }
+        var style by remember { mutableStateOf(PosterStyle.of(context)) }
+        // 二维码只在启用角标时解码一次，避免每张卡片各解一遍。
+        val mark = remember(style.branded) {
+            if (style.branded) BitmapFactory.decodeResource(context.resources, R.drawable.repo_qr) else null
+        }
+        CompositionLocalProvider(
+            LocalChartShots provides shots,
+            LocalPosterStyle provides style,
+            LocalPosterMark provides mark,
         ) {
-            if (summary == null) {
-                item(key = "analysis_empty") {
+            // 一次性组合全部卡片（非惰性列表），保证未滚动到的图表也已绘制、可被截图导出。
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("settings:analysis")
+                    .scrollEndHaptic()
+                    .verticalScroll(rememberScrollState())
+                    .overScrollVertical()
+                    .nestedScroll(scrollBehavior.nestedScrollConnection)
+                    .padding(
+                        PaddingValues(
+                            start = safeInsets.calculateLeftPadding(layoutDirection),
+                            top = padding.calculateTopPadding() + 8.dp,
+                            end = safeInsets.calculateRightPadding(layoutDirection),
+                            bottom = padding.calculateBottomPadding(),
+                        ),
+                    ),
+            ) {
+                if (summary == null) {
                     SectionCard(stringResource(R.string.analysis_title), "analysis:empty") {
                         EmptyHint(stringResource(R.string.analysis_empty))
                     }
+                } else {
+                    ExportShareCard(
+                        summary = summary,
+                        style = style,
+                        onStyleChange = {
+                            style = it
+                            PosterStyle.store(context, it)
+                        },
+                    )
+                    OverviewCard(summary)
+                    StepsCard(summary)
+                    SleepCard(summary)
+                    HeartRateCard(summary)
+                    BloodOxygenCard(summary)
+                    PressureCard(summary)
+                    WorkoutCard(summary)
+                    WeightCard(summary)
                 }
-            } else {
-                item(key = "analysis_export") { ExportShareCard(summary) }
-                item(key = "analysis_overview") { OverviewCard(summary) }
-                item(key = "analysis_steps") { StepsCard(summary) }
-                item(key = "analysis_sleep") { SleepCard(summary) }
-                item(key = "analysis_heart") { HeartRateCard(summary) }
-                item(key = "analysis_oxygen") { BloodOxygenCard(summary) }
-                item(key = "analysis_pressure") { PressureCard(summary) }
-                item(key = "analysis_workout") { WorkoutCard(summary) }
-                item(key = "analysis_weight") { WeightCard(summary) }
-            }
-            item(key = "navigation_bar_spacer") {
                 Spacer(modifier = Modifier.navigationBarsPadding())
             }
         }
@@ -555,13 +584,21 @@ private fun SectionCard(
     val titleColors = BasicComponentDefaults.titleColor()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val shots = LocalChartShots.current
+    val style = LocalPosterStyle.current
+    val mark = LocalPosterMark.current
     // 每个带图表标识的卡片各自持有一个绘图图层，用于把卡片内容原样截图后分享。
     val layer = rememberGraphicsLayer()
+    DisposableEffect(shareSlug, shots) {
+        if (shareSlug != null && shots != null) shots.register(shareSlug, title, layer)
+        onDispose { if (shareSlug != null) shots?.unregister(shareSlug) }
+    }
     val appName = stringResource(R.string.app_name)
     val chooserTitle = stringResource(R.string.analysis_share_via)
     val savedTemplate = stringResource(R.string.analysis_export_saved)
     val shareOnlyText = stringResource(R.string.analysis_export_share_only)
     val failedText = stringResource(R.string.analysis_export_failed)
+    val failedTemplate = stringResource(R.string.analysis_export_failed_reason)
     val shareLabel = stringResource(R.string.analysis_share_chart)
     Box(
         modifier = Modifier
@@ -570,20 +607,10 @@ private fun SectionCard(
             .testTag(testTag),
     ) {
         Card(
+            // 分享按钮不放进来，避免把自己也截进图片。
             modifier = Modifier
                 .fillMaxWidth()
-                .then(
-                    // 分享按钮不放进来，避免把自己也截进图片。
-                    if (shareSlug == null) {
-                        Modifier
-                    } else {
-                        Modifier.drawWithContent {
-                            // record 是 DrawScope 上针对 GraphicsLayer 的成员扩展：尺寸默认取当前 DrawScope。
-                            layer.record { this@drawWithContent.drawContent() }
-                            drawLayer(layer)
-                        }
-                    },
-                ),
+                .then(if (shareSlug == null) Modifier else Modifier.captureLayer(layer)),
             insideMargin = PaddingValues(0.dp),
         ) {
             Column(
@@ -606,6 +633,7 @@ private fun SectionCard(
             IconButton(
                 onClick = {
                     scope.launch {
+                        var failure: Throwable? = null
                         val result = runCatching {
                             val shot = layer.toImageBitmap().asAndroidBitmap()
                             val poster = composePoster(
@@ -614,6 +642,9 @@ private fun SectionCard(
                                 title = appName,
                                 subtitle = title,
                                 stamp = fileStamp(System.currentTimeMillis()),
+                                theme = style.theme,
+                                rounded = style.rounded,
+                                mark = mark,
                             )
                             ShareExporter.shareImage(
                                 context = context,
@@ -621,16 +652,8 @@ private fun SectionCard(
                                 fileName = "HealthExport-$shareSlug-${fileStamp(System.currentTimeMillis())}.png",
                                 chooserTitle = chooserTitle,
                             )
-                        }.getOrNull()
-                        Toast.makeText(
-                            context,
-                            when {
-                                result == null -> failedText
-                                result.savedPath != null -> String.format(savedTemplate, result.savedPath)
-                                else -> shareOnlyText
-                            },
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        }.onFailure { failure = it }.getOrNull()
+                        Toast.makeText(context, exportMessage(result, failure, savedTemplate, shareOnlyText, failedText, failedTemplate), Toast.LENGTH_SHORT).show()
                     }
                 },
                 modifier = Modifier.align(Alignment.TopEnd),
@@ -644,62 +667,198 @@ private fun SectionCard(
     }
 }
 
+/** 导出结果的统一提示语：失败时带上异常类型，便于定位截图/分享环节的问题。 */
+private fun exportMessage(
+    result: ExportResult?,
+    failure: Throwable?,
+    savedTemplate: String,
+    shareOnlyText: String,
+    failedText: String,
+    failedTemplate: String,
+): String = when {
+    result == null && failure != null -> String.format(failedTemplate, failure.javaClass.simpleName)
+    result == null -> failedText
+    result.savedPath != null -> String.format(savedTemplate, result.savedPath)
+    else -> shareOnlyText
+}
+
 /**
  * 导出与分享入口：把当前分析的完整数值写成 Markdown 文件并调起系统分享。
  * 图表图片则在每张卡片右上角的分享按钮上导出。
  */
 @Composable
-private fun ExportShareCard(summary: ExportSummary) {
-    val titleColors = BasicComponentDefaults.titleColor()
+private fun ExportShareCard(
+    summary: ExportSummary,
+    style: PosterStyle,
+    onStyleChange: (PosterStyle) -> Unit,
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val lookup = rememberTextLookup()
+    val shots = LocalChartShots.current
+    val mark = LocalPosterMark.current
+    val appName = stringResource(R.string.app_name)
     val chooserTitle = stringResource(R.string.analysis_share_via)
     val savedTemplate = stringResource(R.string.analysis_export_saved)
     val shareOnlyText = stringResource(R.string.analysis_export_share_only)
     val failedText = stringResource(R.string.analysis_export_failed)
+    val failedTemplate = stringResource(R.string.analysis_export_failed_reason)
+    val noChartText = stringResource(R.string.analysis_export_no_chart)
     SectionCard(stringResource(R.string.analysis_export_section), "analysis:export") {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable {
-                    scope.launch {
-                        val result = runCatching {
-                            ShareExporter.shareText(
-                                context = context,
-                                text = buildAnalysisMarkdown(summary, lookup),
-                                fileName = "HealthExport-analysis-${fileStamp(System.currentTimeMillis())}.md",
-                                chooserTitle = chooserTitle,
-                            )
-                        }.getOrNull()
-                        Toast.makeText(
-                            context,
-                            when {
-                                result == null -> failedText
-                                result.savedPath != null -> String.format(savedTemplate, result.savedPath)
-                                else -> shareOnlyText
-                            },
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                }
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                imageVector = MiuixIcons.Regular.Notes,
-                contentDescription = null,
-            )
-            Text(
-                stringResource(R.string.analysis_export_report),
-                fontSize = MiuixTheme.textStyles.body2.fontSize,
-                fontWeight = FontWeight.Medium,
-                color = titleColors.color,
-            )
+        // 1）纯数据报告：只有表格，体积最小。
+        ExportActionRow(MiuixIcons.Regular.Notes, stringResource(R.string.analysis_export_report)) {
+            scope.launch {
+                var failure: Throwable? = null
+                val result = runCatching {
+                    ShareExporter.shareText(
+                        context = context,
+                        text = buildAnalysisMarkdown(summary, lookup),
+                        fileName = "HealthExport-analysis-${fileStamp(System.currentTimeMillis())}.md",
+                        chooserTitle = chooserTitle,
+                    )
+                }.onFailure { failure = it }.getOrNull()
+                Toast.makeText(
+                    context,
+                    exportMessage(result, failure, savedTemplate, shareOnlyText, failedText, failedTemplate),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
         EmptyHint(stringResource(R.string.analysis_export_report_hint))
+
+        // 2）图文报告：报告 md + images/*.png 打成 zip，保持相对路径不出错。
+        ExportActionRow(MiuixIcons.Regular.Report, stringResource(R.string.analysis_export_pack)) {
+            scope.launch {
+                var failure: Throwable? = null
+                var empty = false
+                val result = runCatching {
+                    val posters = capturePosters(shots, appName, style, mark)
+                    if (posters.isEmpty()) {
+                        empty = true
+                        null
+                    } else {
+                        val entries = ArrayList<Pair<String, ByteArray>>(posters.size + 1)
+                        entries += "report.md" to buildAnalysisMarkdown(
+                            summary,
+                            lookup,
+                            posters.associate { (slug, _) -> slug to "images/$slug.png" },
+                        ).toByteArray(Charsets.UTF_8)
+                        for ((slug, bitmap) in posters) {
+                            val bytes = ShareExporter.encodePng(bitmap) ?: continue
+                            entries += "images/$slug.png" to bytes
+                        }
+                        ShareExporter.shareArchive(
+                            context = context,
+                            entries = entries,
+                            fileName = "HealthExport-report-${fileStamp(System.currentTimeMillis())}.zip",
+                            chooserTitle = chooserTitle,
+                        )
+                    }
+                }.onFailure { failure = it }.getOrNull()
+                Toast.makeText(
+                    context,
+                    if (empty) {
+                        noChartText
+                    } else {
+                        exportMessage(result, failure, savedTemplate, shareOnlyText, failedText, failedTemplate)
+                    },
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+        EmptyHint(stringResource(R.string.analysis_export_pack_hint))
+
+        // 3）一次分享全部图表图片。
+        ExportActionRow(MiuixIcons.Regular.Photos, stringResource(R.string.analysis_share_all)) {
+            scope.launch {
+                var failure: Throwable? = null
+                var empty = false
+                val result = runCatching {
+                    val posters = capturePosters(shots, appName, style, mark)
+                    if (posters.isEmpty()) {
+                        empty = true
+                        null
+                    } else {
+                        ShareExporter.shareImages(context, posters, chooserTitle)
+                    }
+                }.onFailure { failure = it }.getOrNull()
+                Toast.makeText(
+                    context,
+                    if (empty) {
+                        noChartText
+                    } else {
+                        exportMessage(result, failure, savedTemplate, shareOnlyText, failedText, failedTemplate)
+                    },
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+        EmptyHint(stringResource(R.string.analysis_share_all_hint))
+
+        GroupTitle(stringResource(R.string.analysis_export_style))
+        RadioButtonPreference(
+            title = stringResource(R.string.analysis_export_theme_dark),
+            selected = style.theme == PosterTheme.DARK,
+            onClick = { onStyleChange(style.copy(theme = PosterTheme.DARK)) },
+        )
+        RadioButtonPreference(
+            title = stringResource(R.string.analysis_export_theme_light),
+            selected = style.theme == PosterTheme.LIGHT,
+            onClick = { onStyleChange(style.copy(theme = PosterTheme.LIGHT)) },
+        )
+        SwitchPreference(
+            title = stringResource(R.string.analysis_export_rounded),
+            checked = style.rounded,
+            onCheckedChange = { onStyleChange(style.copy(rounded = it)) },
+        )
+        SwitchPreference(
+            title = stringResource(R.string.analysis_export_branded),
+            checked = style.branded,
+            onCheckedChange = { onStyleChange(style.copy(branded = it)) },
+        )
         EmptyHint(stringResource(R.string.analysis_export_chart_hint))
+        EmptyHint(stringResource(R.string.analysis_export_detail_hint))
+    }
+}
+
+/** 把当前已绘制过的全部图表逐个合成为分享海报，顺序与界面一致。 */
+private suspend fun capturePosters(
+    shots: ChartShots?,
+    appName: String,
+    style: PosterStyle,
+    mark: Bitmap?,
+): List<Pair<String, Bitmap>> = shots?.captureAll().orEmpty().map { shot ->
+    shot.slug to composePoster(
+        source = shot.bitmap,
+        accent = ChartPalette.Primary.toArgb(),
+        title = appName,
+        subtitle = shot.title,
+        stamp = fileStamp(System.currentTimeMillis()),
+        theme = style.theme,
+        rounded = style.rounded,
+        mark = mark,
+    )
+}
+
+/** 一行可点击的导出 / 分享动作。 */
+@Composable
+private fun ExportActionRow(imageVector: ImageVector, label: String, onClick: () -> Unit) {
+    val titleColors = BasicComponentDefaults.titleColor()
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(imageVector = imageVector, contentDescription = null)
+        Text(
+            label,
+            fontSize = MiuixTheme.textStyles.body2.fontSize,
+            fontWeight = FontWeight.Medium,
+            color = titleColors.color,
+        )
     }
 }
 
