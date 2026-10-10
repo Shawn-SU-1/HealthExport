@@ -10,6 +10,7 @@ build/
 .cxx
 local.properties
 # 本地构建参考
+/.rundata/
 /调试/
 /.claude/
 /.zcf/
