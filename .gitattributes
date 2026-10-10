@@ -1,0 +1,15 @@
+# 统一换行符处理：仓库内按文本规范化存储，检出时按平台转换。
+* text=auto
+
+# Gradle wrapper 脚本在 Unix 环境执行，必须保持 LF。
+gradlew text eol=lf
+*.sh text eol=lf
+
+# Windows 批处理脚本保持 CRLF。
+*.bat text eol=crlf
+
+# 二进制文件不做转换。
+*.png binary
+*.jpg binary
+*.jar binary
+*.keystore binary
