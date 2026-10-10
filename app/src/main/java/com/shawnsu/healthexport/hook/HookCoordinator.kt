@@ -1,6 +1,7 @@
 package com.shawnsu.healthexport.hook
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.app.Application
 import android.content.Context
 import com.shawnsu.healthexport.config.SettingsKeys
@@ -10,9 +11,16 @@ import com.shawnsu.healthexport.export.ExportRuntime
 import com.shawnsu.healthexport.hook.util.ModuleLogger
 import io.github.libxposed.api.XposedInterface
 
-/** 只安装 Application.attach；附加完成后读取导出预约并执行。 */
+/**
+ * 安装 Application.attach 与 Activity.onResume 两个钩子，二者共用一个派发入口：
+ * 前者覆盖目标进程冷启动，后者覆盖进程存活期间回到前台，
+ * 因此预约变更不再需要强制结束目标进程。
+ */
 internal object HookCoordinator {
     private val installGate = HookInstallGate()
+
+    @Volatile
+    private var application: Application? = null
 
     @SuppressLint("DiscouragedPrivateApi") // Hook 必须在目标应用的 Context 初始化后安装。
     fun installAttachHook(framework: XposedInterface) {
@@ -31,9 +39,9 @@ internal object HookCoordinator {
             .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
             .intercept { chain ->
                 val result = chain.proceed()
-                val application = chain.thisObject as? Application
-                if (application != null && installGate.claimRuntime()) {
-                    installAfterAttach(framework, application, logger)
+                val target = chain.thisObject as? Application
+                if (target != null && installGate.claimRuntime()) {
+                    installAfterAttach(framework, target, logger)
                 }
                 result
             }
@@ -41,10 +49,43 @@ internal object HookCoordinator {
 
     private fun installAfterAttach(
         framework: XposedInterface,
-        application: Application,
+        target: Application,
         logger: ModuleLogger,
     ) {
-        if (application.packageName != HookInstallPolicy.TARGET_PACKAGE) return
+        if (target.packageName != HookInstallPolicy.TARGET_PACKAGE) return
+        application = target
+        installResumeHook(framework, logger)
+        dispatch(framework, target, logger)
+    }
+
+    /** 回到前台时再读一次预约；钩子只在目标进程内生效。 */
+    @SuppressLint("DiscouragedPrivateApi") // 前台恢复钩子必须挂到 Activity 生命周期回调。
+    private fun installResumeHook(framework: XposedInterface, logger: ModuleLogger) {
+        if (!installGate.claimForeground()) return
+        val onResume = runCatching {
+            Activity::class.java.getDeclaredMethod("onResume").apply { isAccessible = true }
+        }.getOrElse {
+            logger.warn("Activity.onResume unavailable", it)
+            return
+        }
+        framework.hook(onResume)
+            .setId("healthexport.activity.resume")
+            .setExceptionMode(XposedInterface.ExceptionMode.PROTECTIVE)
+            .intercept { chain ->
+                val result = chain.proceed()
+                val activity = chain.thisObject as? Activity
+                val target = application
+                if (activity != null && target != null &&
+                    activity.packageName == HookInstallPolicy.TARGET_PACKAGE
+                ) {
+                    dispatch(framework, target, logger)
+                }
+                result
+            }
+    }
+
+    /** 读取共享预约并派发导出；同一预约在同一进程内只派发一次。 */
+    private fun dispatch(framework: XposedInterface, target: Application, logger: ModuleLogger) {
         val preferences = try {
             framework.getRemotePreferences(SettingsKeys.GROUP)
         } catch (error: RuntimeException) {
@@ -57,7 +98,8 @@ internal object HookCoordinator {
             logger.warn("Export request unavailable: ${error.javaClass.simpleName}")
             ""
         }
+        if (exportRequest.isEmpty() || !installGate.claimRequest(exportRequest)) return
         val exportRange = ExportRequests.range(preferences)
-        ExportRuntime.start(application, exportRequest, exportRange, logger)
+        ExportRuntime.start(target, exportRequest, exportRange, logger)
     }
 }

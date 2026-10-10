@@ -1,14 +1,33 @@
 package com.shawnsu.healthexport.hook
 
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
+/**
+ * 安装与派发守卫：每个钩子只安装一次；同一预约在同一进程内只派发一次，
+ * 避免导出进行中反复回到前台时并发启动第二次导出。
+ */
 class HookInstallGate {
     private val attachInstalled = AtomicBoolean()
     private val runtimeInstalled = AtomicBoolean()
+    private val foregroundInstalled = AtomicBoolean()
+    private val dispatched = AtomicReference<String?>(null)
 
     fun claimAttach(): Boolean = attachInstalled.compareAndSet(false, true)
 
     fun claimRuntime(): Boolean = runtimeInstalled.compareAndSet(false, true)
+
+    /** 前台恢复钩子只安装一次。 */
+    fun claimForeground(): Boolean = foregroundInstalled.compareAndSet(false, true)
+
+    /** 同一预约只派发一次；已完成预约由导出侧兜底去重。 */
+    fun claimRequest(request: String): Boolean {
+        while (true) {
+            val current = dispatched.get()
+            if (current == request) return false
+            if (dispatched.compareAndSet(current, request)) return true
+        }
+    }
 }
 
 object HookInstallPolicy {

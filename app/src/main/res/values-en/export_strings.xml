@@ -7,10 +7,10 @@
     <string name="export_complete">Export complete</string>
     <string name="export_complete_all">Export complete. %1$d records</string>
     <string name="export_complete_partial">Export complete. %1$d records; %2$d datasets failed</string>
-    <string name="export_failed">Export failed. It will retry the next time Huawei Health starts</string>
-    <string name="export_uncertain">Export status is uncertain. Restart Huawei Health</string>
+    <string name="export_failed">Export failed. It will retry when Huawei Health returns to the foreground or starts again</string>
+    <string name="export_uncertain">Export status is uncertain. Bring Huawei Health to the foreground or restart it</string>
     <string name="export_progress">Exported %1$d/%2$d datasets</string>
-    <string name="export_scheduled">Scheduled to export the next time Huawei Health starts</string>
+    <string name="export_scheduled">Scheduled to export when Huawei Health returns to the foreground or starts again</string>
     <string name="export_save_failed">Unable to schedule the export. Try again</string>
     <string name="export_saving">Scheduling</string>
     <string name="export_request_uncertain">The schedule could not be confirmed. Scheduling is paused until the module service reconnects</string>
@@ -50,7 +50,7 @@
     <string name="export_log_empty">(no log)</string>
     <string name="export_log_name_separator">", "</string>
     <string name="export_log_hint_none">No export records yet.</string>
-    <string name="export_log_hint_waiting">Export scheduled (%1$s). It will run the next time Huawei Health starts. To trigger it now, swipe Huawei Health away from Recents (or force stop it), then reopen it. If this request still produces no log after several restarts, check that the module scope includes Huawei Health.</string>
+    <string name="export_log_hint_waiting">Export scheduled (%1$s). It runs when Huawei Health returns to the foreground, or the next time it starts. If this request still produces no log, check that the module scope includes Huawei Health.</string>
     <string name="export_log_hint_waiting_previous">A new export is scheduled (%1$s) and has not run yet. The log below is from the previous export (%2$s).</string>
     <string name="export_log_hint_running">Export in progress: %1$d/%2$d datasets done. Keep Huawei Health running while exporting.</string>
     <string name="export_log_hint_stale">No new progress for over 15 minutes; the export may have been interrupted (for example, Huawei Health was killed). Reopen Huawei Health to retry automatically.</string>
